@@ -5,6 +5,7 @@
 
 # Importacion para el manejo de sistema
 import os
+import unicodedata
 import requests
 
 
@@ -98,6 +99,61 @@ class IntermediateTools:
             print(f"Error al consultar_precio_cripto_api: {cripto}. Error: {e}")
             return f"ERROR: No se pudo obtener el precio de la criptomoneda: {cripto}"
 
+    # ------------------------------------------------------------------
+    # Ayudas internas para el Banco Mundial
+    # ------------------------------------------------------------------
+
+    _PAISES = {
+        "guatemala": "GT", "mexico": "MX", "estados unidos": "US", "usa": "US",
+        "eeuu": "US", "ee.uu.": "US", "costa rica": "CR", "honduras": "HN",
+        "el salvador": "SV", "nicaragua": "NI", "panama": "PA", "belice": "BZ",
+        "colombia": "CO", "venezuela": "VE", "ecuador": "EC", "peru": "PE",
+        "bolivia": "BO", "chile": "CL", "argentina": "AR", "uruguay": "UY",
+        "paraguay": "PY", "brasil": "BR", "brazil": "BR", "cuba": "CU",
+        "republica dominicana": "DO", "espana": "ES", "alemania": "DE",
+        "francia": "FR", "italia": "IT", "reino unido": "GB", "canada": "CA",
+        "china": "CN", "japon": "JP", "india": "IN",
+    }
+
+    def _normalizar_pais(self, pais: str) -> str:
+        # Acepta codigo de 2 letras o un nombre comun en español y devuelve el codigo.
+        limpio = unicodedata.normalize("NFKD", (pais or "").strip().lower())
+        limpio = "".join(c for c in limpio if not unicodedata.combining(c))
+        return self._PAISES.get(limpio, limpio.upper())
+
+    def _bm_ultimo_dato(self, pais: str, codigo: str):
+        # Consulta UN pais y UN indicador. Devuelve dict con el dato o str con el error.
+        url = (
+            f"https://api.worldbank.org/v2/country/{pais}/indicator/{codigo}"
+            f"?format=json&per_page=5&mrnev=1"
+        )
+        try:
+            response = requests.get(url, headers=self._default_headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            return f"fallo la consulta al Banco Mundial ({type(e).__name__}: {e})"
+
+        if isinstance(data, list) and data and isinstance(data[0], dict) and "message" in data[0]:
+            mensajes = data[0].get("message") or []
+            detalle = mensajes[0].get("value") if mensajes and isinstance(mensajes[0], dict) else "respuesta de error"
+            return f"el Banco Mundial rechazo la consulta: {detalle}"
+
+        if not isinstance(data, list) or len(data) < 2 or not data[1]:
+            return "no se encontraron datos para ese pais e indicador"
+
+        observaciones = [o for o in data[1] if o.get("value") is not None]
+        if not observaciones:
+            return "no hay datos disponibles para ese pais e indicador"
+
+        reciente = observaciones[0]
+        return {
+            "pais": (reciente.get("country") or {}).get("value"),
+            "indicador": (reciente.get("indicator") or {}).get("value"),
+            "anio": reciente.get("date"),
+            "valor": reciente.get("value"),
+        }
+
     # Herramienta para consultar indicadores económicos del Banco Mundial (publica, sin API key)
     def consultar_indicador_banco_mundial_api(self, pais: str, indicador: str):
         print(f"Herramienta consultar_indicador_banco_mundial_api llamada con pais: {pais}, indicador: {indicador}")
@@ -105,33 +161,14 @@ class IntermediateTools:
         if not pais or not indicador:
             return "Error: Se requiere el código de país (ej. GT, MX, US) y el código de indicador (ej. NY.GDP.MKTP.CD)."
 
-        url = (
-            f"https://api.worldbank.org/v2/country/{pais.upper()}/indicator/{indicador}"
-            f"?format=json&per_page=5&mrnev=1"
-        )
+        codigo_pais = self._normalizar_pais(pais)
+        codigo = self._macro_indicadores.get(indicador.strip().lower(), indicador.strip())
 
-        try:
-            response = requests.get(url, headers=self._default_headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-
-            if not isinstance(data, list) or len(data) < 2 or not data[1]:
-                return f"ERROR: No se encontró el indicador {indicador} para el país: {pais}"
-
-            observaciones = [o for o in data[1] if o.get("value") is not None]
-            if not observaciones:
-                return f"ERROR: No hay datos disponibles para el indicador {indicador} en el país: {pais}"
-
-            reciente = observaciones[0]
-            return {
-                "pais": reciente.get("country", {}).get("value"),
-                "indicador": reciente.get("indicator", {}).get("value"),
-                "anio": reciente.get("date"),
-                "valor": reciente.get("value")
-            }
-        except Exception as e:
-            print(f"Error al consultar_indicador_banco_mundial_api: {pais}/{indicador}. Error: {e}")
-            return f"ERROR: No se pudo obtener el indicador {indicador} para el país: {pais}"
+        resultado = self._bm_ultimo_dato(codigo_pais, codigo)
+        if isinstance(resultado, str):
+            print(f"Error en consultar_indicador_banco_mundial_api: {codigo_pais}/{codigo}: {resultado}")
+            return f"ERROR: {resultado} (pais: {codigo_pais}, indicador: {codigo})"
+        return resultado
 
     # Herramienta para consultar un indicador macroeconomico comun (Banco Mundial, publica, sin API key)
     def consultar_indicador_macro_api(self, indicador: str, pais: str):
@@ -332,47 +369,36 @@ class IntermediateTools:
             return f"ERROR: No se pudo convertir la moneda: {moneda_base} a {moneda_destino}"
 
     # Herramienta para comparar un indicador macroeconomico entre varios paises
-    # (Banco Mundial, mismo proveedor que las otras herramientas de indicadores).
+    # (Banco Mundial). Consulta un pais a la vez, igual que las otras herramientas
+    # de indicadores, y junta los resultados.
     def consultar_comparativo_indicador_banco_mundial_api(self, paises: str, indicador: str):
         print(f"Herramienta consultar_comparativo_indicador_banco_mundial_api llamada con paises: {paises}, indicador: {indicador}")
 
         if not paises or not indicador:
             return "Error: Se requieren los códigos de país separados por coma (ej. GT,MX,US) y el indicador (nombre simple o código del Banco Mundial)."
 
-        codigo = self._macro_indicadores.get(indicador.lower(), indicador)
-        lista_paises = ";".join(p.strip().upper() for p in paises.split(",") if p.strip())
+        codigo = self._macro_indicadores.get(indicador.strip().lower(), indicador.strip())
+        lista = [self._normalizar_pais(p) for p in paises.split(",") if p.strip()]
 
-        if not lista_paises:
+        if not lista:
             return "Error: Se requiere al menos un código de país válido (ej. GT,MX,US)."
 
-        url = (
-            f"https://api.worldbank.org/v2/country/{lista_paises}/indicator/{codigo}"
-            f"?format=json&per_page=100&mrnev=1"
-        )
+        resultados = {}
+        errores = {}
+        for p in lista[:10]:
+            dato = self._bm_ultimo_dato(p, codigo)
+            if isinstance(dato, str):
+                errores[p] = dato
+            else:
+                resultados[dato.get("pais") or p] = {"anio": dato.get("anio"), "valor": dato.get("valor")}
 
-        try:
-            response = requests.get(url, headers=self._default_headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+        if not resultados:
+            print(f"Error en consultar_comparativo_indicador_banco_mundial_api: {errores}")
+            return f"ERROR: No se pudo obtener el indicador {indicador} para ningún país. Detalle: {errores}"
 
-            if not isinstance(data, list) or len(data) < 2 or not data[1]:
-                return f"ERROR: No se encontraron datos del indicador {indicador} para los países: {paises}"
-
-            resultados = {}
-            for obs in data[1]:
-                if obs.get("value") is None:
-                    continue
-                nombre_pais = obs.get("country", {}).get("value")
-                if nombre_pais not in resultados:
-                    resultados[nombre_pais] = {"anio": obs.get("date"), "valor": obs.get("value")}
-
-            if not resultados:
-                return f"ERROR: No hay datos disponibles del indicador {indicador} para los países: {paises}"
-
-            return resultados
-        except Exception as e:
-            print(f"Error al consultar_comparativo_indicador_banco_mundial_api: {paises}/{indicador}. Error: {e}")
-            return f"ERROR: No se pudo obtener el comparativo del indicador: {indicador}"
+        if errores:
+            resultados["_paises_sin_datos"] = errores
+        return resultados
 
     # Herramienta para consultar informacion basica de un pais (Banco Mundial,
     # mismo proveedor que las otras herramientas de indicadores; reemplaza a

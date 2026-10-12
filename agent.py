@@ -288,7 +288,7 @@ TOOLS = [
 ]
 
 
-def process_response(client:Groq, memory_messages: list[dict], user_text:str):
+def process_response(client:Groq, memory_messages: list[dict], user_text:str, trace: list | None = None):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(memory_messages)
     messages.append({"role": "user", "content": user_text})
@@ -372,6 +372,10 @@ def process_response(client:Groq, memory_messages: list[dict], user_text:str):
             else:
                 print(f"Se intentó llamar a una herramienta desconocida {name}")
                 result = {"error": f"Herramienta desconocida: {name}"}
+
+            # Registrar la llamada (para mostrarla en la interfaz)
+            if trace is not None:
+                trace.append({"herramienta": name, "argumentos": args, "resultado": result})
 
             # Agregar a los mensajes el resultado del llamado de la herramienta
             # Esto lo recibirá el modelo al continuar la iteración
