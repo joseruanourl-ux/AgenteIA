@@ -288,35 +288,44 @@ class IntermediateTools:
             print(f"Error al consultar_historial_tasa_cambio_api: {fecha}. Error: {e}")
             return f"ERROR: No se pudo obtener el tipo de cambio histórico para la fecha: {fecha}"
 
-    # Herramienta para convertir un monto entre dos monedas (Frankfurter.app,
-    # mismo proveedor que consultar_tasa_cambio_frankfurter_api).
+    # Herramienta para convertir un monto entre dos monedas (open.er-api.com,
+    # publica, sin API key). Se usa este proveedor porque soporta GTQ; Frankfurter
+    # (Banco Central Europeo) no incluye el quetzal.
     def consultar_conversion_moneda_api(self, monto: float, moneda_base: str, moneda_destino: str = "GTQ"):
         print(f"Herramienta consultar_conversion_moneda_api llamada con monto: {monto}, base: {moneda_base}, destino: {moneda_destino}")
 
         if monto is None or not moneda_base:
             return "Error: Se requiere el monto y la moneda base (ej. 100 USD)."
 
+        try:
+            monto = float(monto)
+        except (TypeError, ValueError):
+            return f"Error: El monto debe ser un número, se recibió: {monto}"
+
         base = moneda_base.upper()
         destino = moneda_destino.upper() if moneda_destino else "GTQ"
 
-        url = "https://api.frankfurter.app/latest"
-        params = {"amount": monto, "from": base, "to": destino}
+        url = f"https://open.er-api.com/v6/latest/{base}"
 
         try:
-            response = requests.get(url, params=params, headers=self._default_headers, timeout=30)
+            response = requests.get(url, headers=self._default_headers, timeout=30)
             response.raise_for_status()
             data = response.json()
 
-            resultado = (data.get("rates") or {}).get(destino)
-            if resultado is None:
+            if data.get("result") != "success":
                 return f"ERROR: No se pudo convertir de {base} a {destino}."
 
+            tasa = (data.get("rates") or {}).get(destino)
+            if tasa is None:
+                return f"ERROR: No se encontró la moneda destino {destino} para la base {base}."
+
             return {
-                "monto_original": data.get("amount"),
-                "moneda_base": data.get("base"),
+                "monto_original": monto,
+                "moneda_base": base,
                 "moneda_destino": destino,
-                "monto_convertido": resultado,
-                "fecha": data.get("date")
+                "tasa": tasa,
+                "monto_convertido": round(monto * tasa, 2),
+                "fecha_actualizacion": data.get("time_last_update_utc")
             }
         except Exception as e:
             print(f"Error al consultar_conversion_moneda_api: {monto} {moneda_base}->{moneda_destino}. Error: {e}")
