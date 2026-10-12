@@ -21,6 +21,13 @@ MEMORY_MAX_MESSAGES = 10
 
 st.set_page_config(page_title=APP_NAME, page_icon=APP_ICON, layout="centered")
 
+
+def html(s: str) -> str:
+    # Markdown trata las líneas con 4+ espacios de sangría, o con líneas en blanco,
+    # como bloque de código. Aplanamos el HTML en una sola línea para evitarlo.
+    return " ".join(l.strip() for l in s.splitlines() if l.strip())
+
+
 # ======================================================================
 # ESTILO STAR WARS
 # ======================================================================
@@ -100,6 +107,13 @@ CSS = """
 .hace-mucho { color: #6cc4ff; font-family: 'Rajdhani', sans-serif; font-size: 1.15rem;
               text-align:center; margin: 6px 0 12px 0; }
 .sw-foot { text-align:center; color:#6b7a99; font-size:.8rem; margin-top: 28px; letter-spacing:.1em; }
+/* Respaldo del tema oscuro (por si no se carga .streamlit/config.toml) */
+.stApp { color: #E6EDF7; }
+[data-testid="stBottom"], [data-testid="stBottom"] > div,
+[data-testid="stBottomBlockContainer"] { background: #02030a !important; }
+[data-testid="stChatInput"], [data-testid="stChatInput"] > div,
+[data-testid="stChatInput"] textarea { background: #0a1020 !important; color: #E6EDF7 !important; }
+[data-testid="stChatInput"] textarea::placeholder { color: #7f8db0 !important; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -123,7 +137,7 @@ DROID_SVG = """
 """
 
 st.markdown(
-    f"""
+    html(f"""
     <div class="sw-header">
         {DROID_SVG}
         <div>
@@ -132,7 +146,7 @@ st.markdown(
         </div>
     </div>
     <div class="sw-line"></div>
-    """,
+    """),
     unsafe_allow_html=True,
 )
 
@@ -338,7 +352,7 @@ if st.session_state.get("diag"):
 # ======================================================================
 if not st.session_state.chat:
     st.markdown(
-        """
+        html("""
         <div class="hace-mucho">Hace mucho tiempo, en una galaxia muy, muy lejana...</div>
         <div class="crawl-wrap"><div class="crawl">
             <h3>EPISODIO I<br>EL DROIDE DE LOS DATOS</h3>
@@ -352,7 +366,7 @@ if not st.session_state.chat:
             Elige una misión en el panel lateral o escribe tu primera
             transmisión abajo...
         </div></div>
-        """,
+        """),
         unsafe_allow_html=True,
     )
 
