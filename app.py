@@ -6,8 +6,8 @@ from basic_memory import BasicMemory
 
 MEMORY_MAX_MESSAGES = 10
 
-st.set_page_config(page_title="Agente de IA", page_icon="🤖")
-st.title("🤖 Agente de IA")
+st.set_page_config(page_title="R2D2", page_icon="🤖")
+st.title("🤖 R2D2")
 st.caption("Tipo de cambio, criptomonedas e indicadores del Banco Mundial.")
 
 # --- Cliente de Groq (la clave viene de los Secrets de Streamlit) ---
