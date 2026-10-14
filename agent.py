@@ -12,7 +12,7 @@ from intermediate_tools import IntermediateTools
 MODEL = "openai/gpt-oss-120b"
 
 SYSTEM_PROMPT = f"""
-Eres un asistente que habla en español y responde de manera muy breve y concisa.
+Eres un asistente financiero y económico que habla en español. Responde de forma clara y concisa: una o dos frases en consultas simples y, en análisis, un resumen de hasta 5 viñetas cortas.
 
 Herramientas:
 - consultar_tipo_cambio_api: da el tipo de cambio entre dos monedas. La moneda base es obligatoria, la moneda destino es opcional (por defecto GTQ).
@@ -24,11 +24,17 @@ Herramientas:
 - consultar_historial_tasa_cambio_api: da el tipo de cambio entre dos monedas en una fecha pasada. La fecha (formato YYYY-MM-DD) es obligatoria, las monedas son opcionales (por defecto EUR y USD).
 - consultar_conversion_moneda_api: convierte un monto de una moneda a otra. El monto y la moneda base son obligatorios, la moneda destino es opcional (por defecto GTQ).
 - consultar_comparativo_indicador_banco_mundial_api: compara un indicador macroeconómico entre varios países. La lista de países (2 letras, separados por coma, ej. GT,MX,US) y el indicador (nombre simple o código del Banco Mundial) son obligatorios.
+- consultar_serie_historica_banco_mundial_api: da la serie histórica ANUAL de un indicador para uno o varios países (hasta 5), con resumen estadístico (mínimo, máximo, promedio, variación, tendencia) y proyección opcional. Países (2 letras, separados por coma) e indicador (nombre simple o código) son obligatorios; año inicial, año final y años a proyectar (0 a 5) son opcionales (por defecto, los últimos 10 años y sin proyección).
 - consultar_info_pais_banco_mundial_api: da información básica de un país (región, nivel de ingreso, capital) según el Banco Mundial. El código de país de 2 letras es obligatorio.
 
 Si una herramienta regresa un error (por ejemplo, falta de un dato obligatorio o dato no disponible),
 debes decírselo al usuario de forma honesta y breve, sin inventar datos.
-La respuesta de una herramienta exitosa debes regresarla tal cual, considerando que es correcta.
+Reglas de análisis y gráficas:
+- Si el usuario pide una gráfica, evolución, tendencia, histórico, comparación en el tiempo, análisis o proyección, usa consultar_serie_historica_banco_mundial_api. La aplicación dibuja la gráfica automáticamente con esos datos, así que NUNCA digas que no puedes hacer gráficas ni intentes dibujarlas con texto.
+- Interpreta los datos con base en el resumen que entrega la herramienta; no inventes cifras que la herramienta no devolvió y no repitas la tabla completa.
+- Los datos del Banco Mundial son anuales y pueden tener 1 a 2 años de retraso. No hay datos trimestrales ni desglose por rubro (alimentos, vivienda, transporte, etc.): si te lo piden, dilo con honestidad y ofrece la inflación anual general como alternativa.
+- Una proyección es solo una extrapolación de tendencia lineal simple, no un pronóstico oficial: acláralo siempre que la presentes.
+- Para consultas simples de un dato, regresa el resultado de la herramienta tal cual, considerándolo correcto.
 """
 
 TOOLS = [
@@ -284,6 +290,43 @@ TOOLS = [
                 "required": ["pais"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_serie_historica_banco_mundial_api",
+            "description": (
+                "Consulta la serie historica anual de un indicador macroeconomico para uno o varios paises "
+                "(Banco Mundial) y devuelve los datos, un resumen estadistico y, opcionalmente, una proyeccion "
+                "de tendencia lineal. Sirve para graficar, analizar tendencias y comparar paises en el tiempo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "paises": {
+                        "type": "string",
+                        "description": "Codigos de pais de 2 letras separados por coma (maximo 5), por ejemplo GT o GT,MX,CR"
+                    },
+                    "indicador": {
+                        "type": "string",
+                        "description": "Nombre simple (crecimiento_pib, inflacion, desempleo, pib_per_capita, deuda_publica) o codigo del Banco Mundial"
+                    },
+                    "anio_inicio": {
+                        "type": "integer",
+                        "description": "Opcional. Ano inicial, por ejemplo 2015. Por defecto, 10 anos antes del final"
+                    },
+                    "anio_fin": {
+                        "type": "integer",
+                        "description": "Opcional. Ano final, por ejemplo 2024. Por defecto, el ano actual"
+                    },
+                    "proyectar_anios": {
+                        "type": "integer",
+                        "description": "Opcional. Cantidad de anos a proyectar con tendencia lineal (0 a 5). Solo funciona con un unico pais"
+                    }
+                },
+                "required": ["paises", "indicador"]
+            }
+        }
     }
 ]
 
@@ -368,6 +411,14 @@ def process_response(client:Groq, memory_messages: list[dict], user_text:str, tr
             elif name == "consultar_info_pais_banco_mundial_api":
                 result = tools.consultar_info_pais_banco_mundial_api(
                     pais=args["pais"]
+                )
+            elif name == "consultar_serie_historica_banco_mundial_api":
+                result = tools.consultar_serie_historica_banco_mundial_api(
+                    paises=args["paises"],
+                    indicador=args["indicador"],
+                    anio_inicio=args.get("anio_inicio"),
+                    anio_fin=args.get("anio_fin"),
+                    proyectar_anios=args.get("proyectar_anios", 0)
                 )
             else:
                 print(f"Se intentó llamar a una herramienta desconocida {name}")
