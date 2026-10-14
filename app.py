@@ -15,7 +15,7 @@ from intermediate_tools import IntermediateTools
 # ======================================================================
 # CONFIGURACIÓN (cambia aquí el nombre y el emoji de la app)
 # ======================================================================
-APP_NAME = "AURUM"
+APP_NAME = "LEST3R"
 APP_TAGLINE = "Capital Intelligence · Divisas · Criptoactivos · Macroeconomía"
 APP_ICON = "💠"
 MEMORY_MAX_MESSAGES = 10
