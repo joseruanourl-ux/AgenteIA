@@ -305,6 +305,9 @@ MISIONES = {
     "Macroeconomía": [
         "¿Cuál es la inflación en Guatemala?",
         "Compara el desempleo de GT, MX y US",
+        "Muéstrame una gráfica de la inflación de Guatemala de los últimos 10 años",
+        "Compara en una gráfica el desempleo de GT, MX y CR",
+        "Analiza el crecimiento del PIB de Guatemala y proyecta 3 años",
         "Dame información básica de Guatemala",
     ],
 }
@@ -373,6 +376,46 @@ def exportar_conversacion() -> str:
         lineas.append(f"{quien}: {m['content']}")
         lineas.append("")
     return "\n".join(lineas)
+
+
+PALETA = ["#00d4ff", "#d4af37", "#4ade80", "#f472b6", "#a78bfa", "#fb923c"]
+
+
+def mostrar_graficos(trace):
+    # Dibuja una gráfica por cada serie histórica consultada (datos reales del Banco Mundial).
+    for t in trace or []:
+        if t.get("herramienta") != "consultar_serie_historica_banco_mundial_api":
+            continue
+        r = t.get("resultado")
+        if not isinstance(r, dict) or not r.get("series"):
+            continue
+        cols = {pais: {int(a): v for a, v in s["datos"].items()} for pais, s in r["series"].items()}
+        proy = r.get("proyeccion")
+        if proy and proy.get("pais") in cols:
+            base = cols[proy["pais"]]
+            ultimo = max(base)
+            cols["Proyección (tendencia)"] = {ultimo: base[ultimo], **{int(a): v for a, v in proy["datos"].items()}}
+        df = pd.DataFrame(cols).sort_index()
+        df.index = df.index.astype(str)
+        df.index.name = "Año"
+        st.markdown(f"**{r.get('indicador', 'Indicador')}** · {r.get('periodo_solicitado', '')}")
+        try:
+            st.line_chart(df, height=300, color=PALETA[: len(df.columns)])
+        except Exception:
+            st.line_chart(df, height=300)
+        if len(r["series"]) == 1:
+            res = next(iter(r["series"].values())).get("resumen", {})
+            if res:
+                st.caption(
+                    f"Último: {res['ultimo_dato']['valor']} ({res['ultimo_dato']['anio']}) · "
+                    f"Mín: {res['minimo']['valor']} ({res['minimo']['anio']}) · "
+                    f"Máx: {res['maximo']['valor']} ({res['maximo']['anio']}) · "
+                    f"Promedio: {res['promedio']} · Tendencia: {res.get('tendencia', 'n/d')}"
+                )
+        nota = "Fuente: Banco Mundial (datos anuales)."
+        if proy:
+            nota += " La línea de proyección es una extrapolación lineal simple, no un pronóstico oficial."
+        st.caption(nota)
 
 
 def mostrar_trace(trace):
@@ -551,7 +594,7 @@ if not st.session_state.chat:
                 <div class="card"><div class="ci">◈</div><div class="ct">Criptoactivos</div>
                     <div class="cd">Precios en vivo y ranking por capitalización de mercado.</div></div>
                 <div class="card"><div class="ci">◈</div><div class="ct">Macroeconomía</div>
-                    <div class="cd">Inflación, desempleo, PIB y comparativos entre países.</div></div>
+                    <div class="cd">Inflación, desempleo y PIB con gráficas históricas, comparativos y proyección de tendencia.</div></div>
             </div>
             <p class="brief-hint">Elige una consulta rápida en el panel lateral o escribe tu pregunta abajo.</p>
         </div>
@@ -565,6 +608,7 @@ if not st.session_state.chat:
 for m in st.session_state.chat:
     with st.chat_message(m["role"], avatar=AVATARES[m["role"]]):
         st.markdown(m["content"])
+        mostrar_graficos(m.get("trace"))
         mostrar_trace(m.get("trace"))
 
 # ======================================================================
@@ -592,6 +636,7 @@ if user_text:
             except Exception as e:
                 assistant_text = f"Ocurrió un error al contactar al modelo: {e}"
         st.markdown(assistant_text)
+        mostrar_graficos(trace)
         mostrar_trace(trace)
 
     st.session_state.chat.append(
