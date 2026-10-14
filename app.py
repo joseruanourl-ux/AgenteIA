@@ -1,6 +1,7 @@
 import json
 import random
 import time
+import uuid
 from datetime import datetime
 
 import pandas as pd
@@ -114,6 +115,11 @@ CSS = """
 [data-testid="stChatInput"], [data-testid="stChatInput"] > div,
 [data-testid="stChatInput"] textarea { background: #0a1020 !important; color: #E6EDF7 !important; }
 [data-testid="stChatInput"] textarea::placeholder { color: #7f8db0 !important; }
+[data-testid="stExpander"] summary, [data-testid="stExpander"] summary *,
+[data-testid="stStatus"] summary, [data-testid="stStatus"] summary *,
+[data-testid="stCheckbox"] label *, [data-testid="stToggle"] label *,
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { color: #E6EDF7 !important; }
+[data-testid="stExpander"] { border-color: rgba(255,232,31,.25) !important; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -170,10 +176,96 @@ client = get_client(api_key)
 # ======================================================================
 # ESTADO DE LA SESIÓN
 # ======================================================================
-if "memory" not in st.session_state:
-    st.session_state.memory = BasicMemory(max_messages=MEMORY_MAX_MESSAGES)
-if "chat" not in st.session_state:
-    st.session_state.chat = []
+TITULO_NUEVA = "Nueva conversación"
+
+
+def _ahora() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def reconstruir_memoria(chat, n):
+    # La memoria del agente son los últimos n mensajes de la conversación activa.
+    mem = BasicMemory(max_messages=n)
+    for m in chat:
+        mem.add(m["role"], m["content"])
+    return mem
+
+
+def nueva_conv():
+    cid = uuid.uuid4().hex[:8]
+    st.session_state.convs[cid] = {
+        "id": cid, "title": TITULO_NUEVA, "created": _ahora(), "updated": _ahora(), "chat": [],
+    }
+    return cid
+
+
+def activar(cid):
+    # Cambia a otra conversación: restaura su historial y la memoria del agente.
+    st.session_state.current = cid
+    st.session_state.chat = st.session_state.convs[cid]["chat"]
+    st.session_state.memory = reconstruir_memoria(
+        st.session_state.chat, st.session_state.get("mem_n", MEMORY_MAX_MESSAGES)
+    )
+
+
+def eliminar_conv(cid):
+    st.session_state.convs.pop(cid, None)
+    restantes = [c for c in st.session_state.convs.values() if c["chat"]]
+    if st.session_state.current == cid or st.session_state.current not in st.session_state.convs:
+        if restantes:
+            activar(max(restantes, key=lambda c: c["updated"])["id"])
+        else:
+            activar(nueva_conv())
+
+
+def exportar_json() -> str:
+    data = {
+        "version": 1,
+        "exportado": _ahora(),
+        "conversations": [c for c in st.session_state.convs.values() if c["chat"]],
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2, default=str)
+
+
+def importar_json(raw: bytes):
+    # Devuelve (importadas, omitidas, error). Valida el formato antes de aceptar nada.
+    try:
+        items = json.loads(raw.decode("utf-8"))["conversations"]
+        if not isinstance(items, list):
+            raise ValueError
+    except Exception:
+        return 0, 0, "El archivo no parece un respaldo válido."
+    nuevas = omitidas = 0
+    for c in items:
+        try:
+            cid = str(c["id"])
+            chat = []
+            for m in c["chat"]:
+                if m["role"] not in ("user", "assistant"):
+                    continue
+                msg = {"role": m["role"], "content": str(m["content"])}
+                if m.get("trace"):
+                    msg["trace"] = m["trace"]
+                chat.append(msg)
+        except Exception:
+            continue
+        if not chat or cid in st.session_state.convs:
+            omitidas += 1
+            continue
+        st.session_state.convs[cid] = {
+            "id": cid,
+            "title": str(c.get("title") or TITULO_NUEVA)[:80],
+            "created": str(c.get("created") or _ahora()),
+            "updated": str(c.get("updated") or _ahora()),
+            "chat": chat,
+        }
+        nuevas += 1
+    return nuevas, omitidas, None
+
+
+if "convs" not in st.session_state:
+    st.session_state.convs = {}
+    activar(nueva_conv())
 
 AVATARES = {"user": "🧑‍🚀", "assistant": APP_ICON}
 
@@ -298,6 +390,30 @@ with st.sidebar:
     except Exception:
         st.caption("Sin señal de la Holo-Red por ahora.")
 
+    st.header("🗂️ HOLOCRÓN (HISTORIAL)")
+    if st.button("➕ Nueva conversación", use_container_width=True):
+        if st.session_state.chat:  # si la actual está vacía no crea otra
+            activar(nueva_conv())
+        st.rerun()
+    guardadas = sorted(
+        (c for c in st.session_state.convs.values() if c["chat"]),
+        key=lambda c: c["updated"], reverse=True,
+    )
+    if not guardadas:
+        st.caption("Aún no hay conversaciones guardadas.")
+    for c in guardadas[:12]:
+        activa = c["id"] == st.session_state.current
+        titulo = c["title"] if len(c["title"]) <= 26 else c["title"][:25] + "…"
+        col_a, col_b = st.columns([5, 1])
+        if col_a.button(("▶ " if activa else "") + titulo, key=f"conv_{c['id']}", use_container_width=True):
+            activar(c["id"])
+            st.rerun()
+        if col_b.button("🗑", key=f"del_{c['id']}", help="Eliminar esta conversación"):
+            eliminar_conv(c["id"])
+            st.rerun()
+    if len(guardadas) > 12:
+        st.caption(f"+{len(guardadas) - 12} más (están incluidas en el respaldo)")
+
     st.header("🎯 MISIONES RÁPIDAS")
     for categoria, preguntas in MISIONES.items():
         with st.expander(categoria):
@@ -307,21 +423,50 @@ with st.sidebar:
 
     st.header("⚙️ CONTROLES")
     st.toggle("Modo ingeniero (ver herramientas)", value=True, key="modo_ingeniero")
+    st.slider(
+        "🧠 Memoria del agente (mensajes)", 4, 40, MEMORY_MAX_MESSAGES, key="mem_n",
+        help="Cuántos mensajes recientes recuerda el agente. Más memoria = más tokens por consulta.",
+    )
+    if st.session_state.memory.history.maxlen != st.session_state.mem_n:
+        st.session_state.memory = reconstruir_memoria(st.session_state.chat, st.session_state.mem_n)
     if st.button("🧪 Diagnosticar sistemas", use_container_width=True):
         st.session_state.run_diag = True
     if st.session_state.chat:
         st.download_button(
-            "💾 Descargar conversación",
+            "📄 Esta conversación (.txt)",
             data=exportar_conversacion(),
             file_name="conversacion.txt",
             mime="text/plain",
             use_container_width=True,
         )
-    if st.button("🗑️ Borrar conversación", use_container_width=True):
-        st.session_state.memory = BasicMemory(max_messages=MEMORY_MAX_MESSAGES)
-        st.session_state.chat = []
+    if st.button("🗑️ Borrar esta conversación", use_container_width=True):
+        eliminar_conv(st.session_state.current)
         st.session_state.pop("diag", None)
         st.rerun()
+
+    st.header("💾 RESPALDO")
+    st.download_button(
+        "⬇️ Guardar todas (JSON)",
+        data=exportar_json(),
+        file_name="holocron_conversaciones.json",
+        mime="application/json",
+        disabled=not guardadas,
+        use_container_width=True,
+    )
+    subido = st.file_uploader("⬆️ Cargar un respaldo", type="json", key="uploader")
+    if subido is not None and st.session_state.get("ultimo_import") != (subido.name, subido.size):
+        st.session_state.ultimo_import = (subido.name, subido.size)
+        nuevas, omitidas, error = importar_json(subido.getvalue())
+        if error:
+            st.session_state.import_msg = f"⚠️ {error}"
+        else:
+            st.session_state.import_msg = f"✅ {nuevas} conversación(es) cargada(s)" + (
+                f", {omitidas} ya existían u omitidas." if omitidas else "."
+            )
+        st.rerun()
+    if st.session_state.get("import_msg"):
+        st.caption(st.session_state.import_msg)
+    st.caption("Las conversaciones viven en esta sesión: si cierras la pestaña se pierden. Descarga el respaldo para conservarlas.")
 
     st.header("📊 ESTADÍSTICAS")
     n_user = sum(1 for m in st.session_state.chat if m["role"] == "user")
@@ -329,7 +474,7 @@ with st.sidebar:
     s1, s2 = st.columns(2)
     s1.metric("Consultas", n_user)
     s2.metric("Herramientas", n_tools)
-    st.caption(f"Memoria: últimos {MEMORY_MAX_MESSAGES} mensajes · 10 herramientas · 4 APIs")
+    st.caption(f"Memoria: últimos {st.session_state.mem_n} mensajes · 10 herramientas · 4 APIs")
 
 # ======================================================================
 # DIAGNÓSTICO (si se pidió)
@@ -387,6 +532,9 @@ user_text = (pendiente or escrito or "").strip()
 
 if user_text:
     st.session_state.chat.append({"role": "user", "content": user_text})
+    _conv = st.session_state.convs[st.session_state.current]
+    if _conv["title"] == TITULO_NUEVA:
+        _conv["title"] = user_text if len(user_text) <= 40 else user_text[:39] + "…"
     with st.chat_message("user", avatar=AVATARES["user"]):
         st.markdown(user_text)
 
@@ -407,7 +555,8 @@ if user_text:
     )
     st.session_state.memory.add("user", user_text)
     st.session_state.memory.add("assistant", assistant_text)
-    st.rerun()  # refresca el panel de estadísticas
+    st.session_state.convs[st.session_state.current]["updated"] = _ahora()
+    st.rerun()  # refresca el historial y las estadísticas
 
 st.markdown(
     '<div class="sw-foot">QUE LA FUERZA DE LOS DATOS TE ACOMPAÑE</div>',
