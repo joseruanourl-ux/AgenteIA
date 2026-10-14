@@ -15,9 +15,9 @@ from intermediate_tools import IntermediateTools
 # ======================================================================
 # CONFIGURACIÓN (cambia aquí el nombre y el emoji de la app)
 # ======================================================================
-APP_NAME = "R2-DATA"
-APP_TAGLINE = "Droide de inteligencia financiera · Divisas · Cripto · Banco Mundial"
-APP_ICON = "🤖"
+APP_NAME = "AURUM"
+APP_TAGLINE = "Capital Intelligence · Divisas · Criptoactivos · Macroeconomía"
+APP_ICON = "💠"
 MEMORY_MAX_MESSAGES = 10
 
 st.set_page_config(page_title=APP_NAME, page_icon=APP_ICON, layout="centered")
@@ -30,128 +30,143 @@ def html(s: str) -> str:
 
 
 # ======================================================================
-# ESTILO STAR WARS
+# ESTILO VISUAL (HUD financiero)
 # ======================================================================
 CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600&family=Cormorant+Garamond:wght@600;700&family=Share+Tech+Mono&display=swap');
+
+:root { --cyan:#00d4ff; --gold:#d4af37; --navy:#050b14; --line:rgba(0,212,255,.28);
+        --txt:#dce9f5; --mute:#7f96b2; --up:#4ade80; }
 
 .stApp {
-    background-color: #02030a;
+    background-color: var(--navy);
     background-image:
-        radial-gradient(1px 1px at 20px 30px, #ffffff, transparent),
-        radial-gradient(1px 1px at 90px 120px, #cfe3ff, transparent),
-        radial-gradient(2px 2px at 160px 70px, #ffe81f, transparent),
-        radial-gradient(1px 1px at 40px 160px, #ffffff, transparent),
-        radial-gradient(1px 1px at 130px 20px, #ffffff, transparent),
-        radial-gradient(1.5px 1.5px at 190px 150px, #9fd0ff, transparent);
-    background-size: 220px 220px;
-    font-family: 'Rajdhani', sans-serif;
-    font-size: 1.05rem;
+        radial-gradient(ellipse at 50% -10%, rgba(0,212,255,.15), transparent 55%),
+        radial-gradient(ellipse at 95% 100%, rgba(212,175,55,.08), transparent 50%),
+        linear-gradient(rgba(0,212,255,.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,.045) 1px, transparent 1px);
+    background-size: auto, auto, 44px 44px, 44px 44px;
+    font-family: 'Exo 2', sans-serif; font-size: 1rem; color: var(--txt);
 }
 [data-testid="stHeader"] { background: transparent; }
 
 /* Encabezado */
-.sw-header { display:flex; align-items:center; gap:18px; margin: 0 0 6px 0; }
-.sw-droid { animation: flotar 3.5s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(58,160,255,.55)); }
-.sw-eye { animation: pulso 1.8s ease-in-out infinite; }
-@keyframes flotar { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-@keyframes pulso { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-.sw-title {
-    font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 2.6rem;
-    letter-spacing: .18em; color: #FFE81F; line-height: 1.1;
-    text-shadow: 0 0 8px rgba(255,232,31,.55), 0 0 24px rgba(255,232,31,.25);
-}
-.sw-sub { font-family: 'Rajdhani', sans-serif; font-weight: 500; color: #6cc4ff;
-          letter-spacing: .12em; text-transform: uppercase; font-size: .9rem; }
-.sw-line { height: 2px; margin: 10px 0 18px 0;
-           background: linear-gradient(90deg, #FFE81F, rgba(255,232,31,0)); }
+.hud-header { display:flex; align-items:center; gap:18px; margin: 0 0 4px 0; }
+.hud-logo { filter: drop-shadow(0 0 8px rgba(0,212,255,.55)); flex-shrink:0; }
+.ring-a { animation: giro 16s linear infinite; transform-box: fill-box; transform-origin: center; }
+.ring-b { animation: giro 10s linear infinite reverse; transform-box: fill-box; transform-origin: center; }
+.core { animation: latido 2.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes giro { to { transform: rotate(360deg); } }
+@keyframes latido { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(.82); } }
+.hud-brand { font-family:'Cormorant Garamond', serif; font-weight:700; font-size:2.7rem; line-height:1;
+             letter-spacing:.34em; color: var(--gold); text-shadow: 0 0 18px rgba(212,175,55,.35); }
+.hud-sub { font-weight:400; color: var(--cyan); letter-spacing:.2em; text-transform:uppercase;
+           font-size:.72rem; margin-top:6px; }
+.hud-status { margin-left:auto; font-family:'Share Tech Mono', monospace; font-size:.72rem; color: var(--up);
+              border:1px solid rgba(74,222,128,.4); border-radius:20px; padding:4px 12px; white-space:nowrap; }
+.hud-status:before { content:"●"; margin-right:6px; animation: latido 1.8s ease-in-out infinite; display:inline-block; }
+.hud-line { height:1px; margin:12px 0 10px 0;
+            background: linear-gradient(90deg, var(--cyan), var(--gold) 55%, rgba(212,175,55,0)); }
+@media (max-width: 640px) { .hud-status { display:none; } .hud-brand { font-size:2rem; } }
 
-/* Mensajes del chat */
+/* Cinta de cotizaciones */
+.ticker { overflow:hidden; white-space:nowrap; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+          background: rgba(0,212,255,.04); padding:7px 0; margin:0 0 18px 0;
+          font-family:'Share Tech Mono', monospace; font-size:.84rem; }
+.ticker-track { display:inline-block; animation: cinta 50s linear infinite; }
+.ticker:hover .ticker-track { animation-play-state: paused; }
+@keyframes cinta { from { transform: translateX(0); } to { transform: translateX(-25%); } }
+.tk b { color: var(--gold); font-weight:400; letter-spacing:.14em; margin-right:6px; }
+.tk i { color: var(--up); font-style:normal; }
+.tk em { color: var(--mute); font-style:normal; }
+.sep { color: var(--cyan); margin: 0 26px; opacity:.7; }
+
+/* Mensajes del chat (paneles HUD con esquinas) */
 [data-testid="stChatMessage"] {
-    background: rgba(10, 20, 45, .72);
-    border: 1px solid rgba(255, 232, 31, .22);
-    border-left: 3px solid #3aa0ff;
-    border-radius: 12px;
-    backdrop-filter: blur(3px);
+    position: relative; background: rgba(8,20,38,.78); border: 1px solid var(--line);
+    border-left: 3px solid var(--cyan); border-radius: 4px; backdrop-filter: blur(4px);
 }
-[data-testid="stChatInput"] { border: 1px solid #FFE81F; border-radius: 12px; }
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) { border-left-color: var(--gold); }
+[data-testid="stChatMessage"]:before, [data-testid="stChatMessage"]:after {
+    content:""; position:absolute; width:10px; height:10px; pointer-events:none; }
+[data-testid="stChatMessage"]:before { top:-1px; right:-1px; border-top:2px solid var(--cyan); border-right:2px solid var(--cyan); }
+[data-testid="stChatMessage"]:after { bottom:-1px; right:-1px; border-bottom:2px solid var(--cyan); border-right:2px solid var(--cyan); }
 
 /* Barra lateral */
-[data-testid="stSidebar"] { background: #05070f; border-right: 1px solid rgba(255,232,31,.25); }
+[data-testid="stSidebar"] { background:#040912; border-right:1px solid var(--line); }
 [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-    font-family: 'Orbitron', sans-serif; color: #FFE81F; letter-spacing: .08em; font-size: 1rem;
+    font-family:'Exo 2', sans-serif; font-weight:600; color: var(--cyan); letter-spacing:.24em;
+    font-size:.74rem; text-transform:uppercase; border-bottom:1px solid var(--line); padding-bottom:6px;
 }
 [data-testid="stSidebar"] .stButton button, .stDownloadButton button {
-    background: transparent; color: #FFE81F; border: 1px solid rgba(255,232,31,.55);
-    border-radius: 8px; font-family: 'Rajdhani', sans-serif; font-weight: 600;
-    text-align: left; transition: all .2s ease;
+    background: transparent; color: var(--txt); border:1px solid var(--line); border-radius:3px;
+    font-family:'Exo 2', sans-serif; font-weight:500; text-align:left; transition: all .2s ease;
 }
 [data-testid="stSidebar"] .stButton button:hover, .stDownloadButton button:hover {
-    background: rgba(255,232,31,.12); box-shadow: 0 0 12px rgba(255,232,31,.4); color: #fff;
+    background: rgba(0,212,255,.1); border-color: var(--cyan); box-shadow: 0 0 12px rgba(0,212,255,.3); color:#fff;
 }
-[data-testid="stMetricValue"] { font-family: 'Orbitron', sans-serif; color: #FFE81F; font-size: 1.3rem; }
-[data-testid="stMetricLabel"] { color: #6cc4ff; }
+[data-testid="stMetricValue"] { font-family:'Share Tech Mono', monospace; color: var(--gold); font-size:1.3rem; }
+[data-testid="stMetricLabel"] { color: var(--mute); }
 
-/* Crawl de apertura */
-.crawl-wrap { height: 250px; overflow: hidden; position: relative; perspective: 260px;
-              border: 1px solid rgba(255,232,31,.25); border-radius: 12px;
-              background: rgba(0,0,0,.55); margin-bottom: 14px; }
-.crawl-wrap:after { content:""; position:absolute; inset:0;
-    background: linear-gradient(180deg, #02030a 0%, rgba(2,3,10,0) 35%); pointer-events:none; }
-.crawl { position:absolute; width: 86%; left: 7%; bottom: -120%; text-align: justify;
-         color: #FFE81F; font-family: 'Orbitron', sans-serif; font-weight: 700;
-         font-size: .95rem; line-height: 1.5; transform-origin: 50% 100%;
-         transform: rotateX(28deg); animation: crawl 38s linear infinite; }
-.crawl h3 { text-align:center; margin: 0 0 .6em 0; font-size: 1.1rem; letter-spacing:.15em; }
-@keyframes crawl { 0% { bottom: -120%; } 100% { bottom: 160%; } }
-.hace-mucho { color: #6cc4ff; font-family: 'Rajdhani', sans-serif; font-size: 1.15rem;
-              text-align:center; margin: 6px 0 12px 0; }
-.sw-foot { text-align:center; color:#6b7a99; font-size:.8rem; margin-top: 28px; letter-spacing:.1em; }
+/* Panel de bienvenida */
+.brief { position:relative; border:1px solid var(--line); background: rgba(8,20,38,.72);
+         padding:22px 24px; margin-bottom:16px; border-radius:4px; }
+.brief:before { content:""; position:absolute; top:-1px; left:-1px; width:14px; height:14px;
+                border-top:2px solid var(--gold); border-left:2px solid var(--gold); }
+.brief:after { content:""; position:absolute; bottom:-1px; right:-1px; width:14px; height:14px;
+               border-bottom:2px solid var(--gold); border-right:2px solid var(--gold); }
+.brief-tag { font-family:'Share Tech Mono', monospace; font-size:.72rem; color: var(--up); letter-spacing:.16em; }
+.brief-title { font-family:'Cormorant Garamond', serif; font-size:1.7rem; font-weight:700; color:#fff; margin:6px 0 8px 0; }
+.brief p { color: var(--txt); opacity:.88; margin:0 0 14px 0; }
+.cards { display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-bottom:14px; }
+@media (max-width: 640px) { .cards { grid-template-columns: 1fr; } }
+.card { border:1px solid var(--line); border-top:2px solid var(--gold); padding:12px 14px; background: rgba(0,212,255,.04); }
+.ci { color: var(--cyan); font-size:1.1rem; }
+.ct { color: var(--gold); letter-spacing:.14em; text-transform:uppercase; font-size:.78rem; font-weight:600; margin:2px 0 4px 0; }
+.cd { color: var(--mute); font-size:.88rem; line-height:1.35; }
+.brief-hint { color: var(--cyan) !important; font-size:.85rem; letter-spacing:.06em; margin:0 !important; }
+.hud-foot { text-align:center; color:#5d7391; font-size:.7rem; margin-top:30px; letter-spacing:.14em; }
+
 /* Respaldo del tema oscuro (por si no se carga .streamlit/config.toml) */
-.stApp { color: #E6EDF7; }
+.stApp { color: var(--txt); }
 [data-testid="stBottom"], [data-testid="stBottom"] > div,
-[data-testid="stBottomBlockContainer"] { background: #02030a !important; }
+[data-testid="stBottomBlockContainer"] { background: #050b14 !important; }
 [data-testid="stChatInput"], [data-testid="stChatInput"] > div,
-[data-testid="stChatInput"] textarea { background: #0a1020 !important; color: #E6EDF7 !important; }
-[data-testid="stChatInput"] textarea::placeholder { color: #7f8db0 !important; }
+[data-testid="stChatInput"] textarea { background: #0b1626 !important; color: var(--txt) !important; }
+[data-testid="stChatInput"] { border: 1px solid var(--cyan); border-radius: 4px; }
+[data-testid="stChatInput"] textarea::placeholder { color: #7f96b2 !important; }
 [data-testid="stExpander"] summary, [data-testid="stExpander"] summary *,
 [data-testid="stStatus"] summary, [data-testid="stStatus"] summary *,
 [data-testid="stCheckbox"] label *, [data-testid="stToggle"] label *,
-[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { color: #E6EDF7 !important; }
-[data-testid="stExpander"] { border-color: rgba(255,232,31,.25) !important; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { color: var(--txt) !important; }
+[data-testid="stExpander"] { border-color: var(--line) !important; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
-DROID_SVG = """
-<svg class="sw-droid" width="74" height="74" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-  <rect x="13" y="36" width="7" height="22" rx="2" fill="#cfd8e3"/>
-  <rect x="44" y="36" width="7" height="22" rx="2" fill="#cfd8e3"/>
-  <rect x="10" y="56" width="13" height="4" rx="2" fill="#8794a8"/>
-  <rect x="41" y="56" width="13" height="4" rx="2" fill="#8794a8"/>
-  <rect x="18" y="26" width="28" height="30" rx="4" fill="#eef3f8" stroke="#9fb0c7"/>
-  <path d="M18 26 A14 14 0 0 1 46 26 Z" fill="#eef3f8" stroke="#9fb0c7"/>
-  <rect x="18" y="22" width="28" height="4" fill="#1e66d0"/>
-  <circle class="sw-eye" cx="32" cy="17" r="4.2" fill="#0b1220" stroke="#3aa0ff" stroke-width="1.6"/>
-  <circle cx="32" cy="17" r="1.6" fill="#ff4d4d"/>
-  <rect x="22" y="33" width="8" height="6" rx="1" fill="#1e66d0"/>
-  <rect x="34" y="33" width="8" height="11" rx="1" fill="#1e66d0"/>
-  <rect x="22" y="43" width="8" height="8" rx="1" fill="#9fb0c7"/>
-  <circle cx="38" cy="49" r="2" fill="#ff4d4d"/>
+LOGO_SVG = """
+<svg class="hud-logo" width="74" height="74" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="40" cy="40" r="37" fill="none" stroke="#00d4ff" stroke-opacity=".25" stroke-width="1"/>
+  <circle class="ring-a" cx="40" cy="40" r="32" fill="none" stroke="#00d4ff" stroke-width="2" stroke-dasharray="6 5 28 5"/>
+  <circle class="ring-b" cx="40" cy="40" r="25" fill="none" stroke="#d4af37" stroke-width="1.5" stroke-dasharray="3 6"/>
+  <polygon points="40,23 54.7,31.5 54.7,48.5 40,57 25.3,48.5 25.3,31.5" fill="none" stroke="#00d4ff" stroke-width="1.2" stroke-opacity=".85"/>
+  <circle cx="40" cy="40" r="11" fill="none" stroke="#ffffff" stroke-opacity=".45" stroke-width=".8"/>
+  <circle class="core" cx="40" cy="40" r="6.5" fill="#d4af37"/>
 </svg>
 """
 
 st.markdown(
     html(f"""
-    <div class="sw-header">
-        {DROID_SVG}
+    <div class="hud-header">
+        {LOGO_SVG}
         <div>
-            <div class="sw-title">{APP_NAME}</div>
-            <div class="sw-sub">{APP_TAGLINE}</div>
+            <div class="hud-brand">{APP_NAME}</div>
+            <div class="hud-sub">{APP_TAGLINE}</div>
         </div>
+        <div class="hud-status">SISTEMAS EN LÍNEA</div>
     </div>
-    <div class="sw-line"></div>
+    <div class="hud-line"></div>
     """),
     unsafe_allow_html=True,
 )
@@ -267,28 +282,27 @@ if "convs" not in st.session_state:
     st.session_state.convs = {}
     activar(nueva_conv())
 
-AVATARES = {"user": "🧑‍🚀", "assistant": APP_ICON}
+AVATARES = {"user": "💼", "assistant": APP_ICON}
 
 FRASES_CARGA = [
-    "Consultando los archivos Jedi...",
-    "Calculando la ruta de hiperespacio...",
-    "Interrogando al droide astromecánico...",
-    "Descifrando transmisiones rebeldes...",
-    "Sincronizando con la Holo-Red...",
-    "Que la Fuerza te acompañe...",
+    "Consultando mercados globales...",
+    "Procesando cotizaciones en tiempo real...",
+    "Analizando indicadores macroeconómicos...",
+    "Verificando fuentes de datos...",
+    "Calculando posiciones...",
 ]
 
 MISIONES = {
-    "💱 Divisas": [
+    "Divisas": [
         "¿Cuánto son 100 USD en quetzales?",
         "¿Cuál es el tipo de cambio del euro en quetzales?",
         "Tipo de cambio de EUR a USD el 2024-01-15",
     ],
-    "🪙 Cripto": [
+    "Criptoactivos": [
         "¿Cuál es el precio de bitcoin?",
         "Dame el top 5 de criptomonedas",
     ],
-    "🌎 Economía": [
+    "Macroeconomía": [
         "¿Cuál es la inflación en Guatemala?",
         "Compara el desempleo de GT, MX y US",
         "Dame información básica de Guatemala",
@@ -365,7 +379,7 @@ def mostrar_trace(trace):
     # Muestra qué herramientas usó el agente, con qué argumentos y qué devolvieron.
     if not trace or not st.session_state.get("modo_ingeniero", True):
         return
-    with st.expander(f"🔧 Herramientas usadas ({len(trace)})"):
+    with st.expander(f"Fuentes y herramientas consultadas ({len(trace)})"):
         for t in trace:
             st.markdown(f"**{t['herramienta']}**")
             st.code(json.dumps(t["argumentos"], ensure_ascii=False), language="json")
@@ -376,11 +390,38 @@ def mostrar_trace(trace):
                 st.code(json.dumps(res, ensure_ascii=False, indent=2), language="json")
 
 
+def render_ticker():
+    # Cinta de cotizaciones tipo bolsa, con los datos en vivo (se refrescan cada 5 min).
+    try:
+        met = cargar_metricas()
+    except Exception:
+        met = {}
+    elementos = []
+    if met.get("usd"):
+        elementos.append(f'<span class="tk"><b>USD/GTQ</b><i>{met["usd"]:.2f}</i></span>')
+    if met.get("eur"):
+        elementos.append(f'<span class="tk"><b>EUR/GTQ</b><i>{met["eur"]:.2f}</i></span>')
+    if met.get("btc"):
+        elementos.append(f'<span class="tk"><b>BTC/USD</b><i>{met["btc"]:,.0f}</i></span>')
+    elementos += [
+        '<span class="tk"><b>DIVISAS</b><em>open.er-api · Frankfurter</em></span>',
+        '<span class="tk"><b>CRIPTO</b><em>CoinGecko</em></span>',
+        '<span class="tk"><b>MACRO</b><em>Banco Mundial</em></span>',
+    ]
+    grupo = '<span class="sep">◆</span>'.join(elementos) + '<span class="sep">◆</span>'
+    st.markdown(
+        html(f'<div class="ticker"><div class="ticker-track">{grupo * 4}</div></div>'),
+        unsafe_allow_html=True,
+    )
+
+
+render_ticker()
+
 # ======================================================================
 # BARRA LATERAL
 # ======================================================================
 with st.sidebar:
-    st.header("📡 TRANSMISIONES EN VIVO")
+    st.header("MERCADOS EN VIVO")
     try:
         met = cargar_metricas()
         c1, c2 = st.columns(2)
@@ -388,10 +429,10 @@ with st.sidebar:
         c2.metric("EUR → GTQ", f"Q {met['eur']:.2f}" if met["eur"] else "—")
         st.metric("Bitcoin", f"$ {met['btc']:,.0f}" if met["btc"] else "—")
     except Exception:
-        st.caption("Sin señal de la Holo-Red por ahora.")
+        st.caption("Sin conexión con las fuentes de mercado por ahora.")
 
-    st.header("🗂️ HOLOCRÓN (HISTORIAL)")
-    if st.button("➕ Nueva conversación", use_container_width=True):
+    st.header("HISTORIAL")
+    if st.button("+ Nueva conversación", use_container_width=True):
         if st.session_state.chat:  # si la actual está vacía no crea otra
             activar(nueva_conv())
         st.rerun()
@@ -408,52 +449,52 @@ with st.sidebar:
         if col_a.button(("▶ " if activa else "") + titulo, key=f"conv_{c['id']}", use_container_width=True):
             activar(c["id"])
             st.rerun()
-        if col_b.button("🗑", key=f"del_{c['id']}", help="Eliminar esta conversación"):
+        if col_b.button("✕", key=f"del_{c['id']}", help="Eliminar esta conversación"):
             eliminar_conv(c["id"])
             st.rerun()
     if len(guardadas) > 12:
         st.caption(f"+{len(guardadas) - 12} más (están incluidas en el respaldo)")
 
-    st.header("🎯 MISIONES RÁPIDAS")
+    st.header("CONSULTAS RÁPIDAS")
     for categoria, preguntas in MISIONES.items():
         with st.expander(categoria):
             for i, p in enumerate(preguntas):
                 if st.button(p, key=f"m_{categoria}_{i}", use_container_width=True):
                     st.session_state.pending = p
 
-    st.header("⚙️ CONTROLES")
-    st.toggle("Modo ingeniero (ver herramientas)", value=True, key="modo_ingeniero")
+    st.header("CONTROLES")
+    st.toggle("Modo analista (ver fuentes)", value=True, key="modo_ingeniero")
     st.slider(
-        "🧠 Memoria del agente (mensajes)", 4, 40, MEMORY_MAX_MESSAGES, key="mem_n",
+        "Memoria del asistente (mensajes)", 4, 40, MEMORY_MAX_MESSAGES, key="mem_n",
         help="Cuántos mensajes recientes recuerda el agente. Más memoria = más tokens por consulta.",
     )
     if st.session_state.memory.history.maxlen != st.session_state.mem_n:
         st.session_state.memory = reconstruir_memoria(st.session_state.chat, st.session_state.mem_n)
-    if st.button("🧪 Diagnosticar sistemas", use_container_width=True):
+    if st.button("Diagnóstico de sistemas", use_container_width=True):
         st.session_state.run_diag = True
     if st.session_state.chat:
         st.download_button(
-            "📄 Esta conversación (.txt)",
+            "Exportar conversación (.txt)",
             data=exportar_conversacion(),
             file_name="conversacion.txt",
             mime="text/plain",
             use_container_width=True,
         )
-    if st.button("🗑️ Borrar esta conversación", use_container_width=True):
+    if st.button("Borrar esta conversación", use_container_width=True):
         eliminar_conv(st.session_state.current)
         st.session_state.pop("diag", None)
         st.rerun()
 
-    st.header("💾 RESPALDO")
+    st.header("RESPALDO")
     st.download_button(
-        "⬇️ Guardar todas (JSON)",
+        "Descargar respaldo (JSON)",
         data=exportar_json(),
-        file_name="holocron_conversaciones.json",
+        file_name="aurum_conversaciones.json",
         mime="application/json",
         disabled=not guardadas,
         use_container_width=True,
     )
-    subido = st.file_uploader("⬆️ Cargar un respaldo", type="json", key="uploader")
+    subido = st.file_uploader("Cargar respaldo", type="json", key="uploader")
     if subido is not None and st.session_state.get("ultimo_import") != (subido.name, subido.size):
         st.session_state.ultimo_import = (subido.name, subido.size)
         nuevas, omitidas, error = importar_json(subido.getvalue())
@@ -468,7 +509,7 @@ with st.sidebar:
         st.caption(st.session_state.import_msg)
     st.caption("Las conversaciones viven en esta sesión: si cierras la pestaña se pierden. Descarga el respaldo para conservarlas.")
 
-    st.header("📊 ESTADÍSTICAS")
+    st.header("ESTADÍSTICAS")
     n_user = sum(1 for m in st.session_state.chat if m["role"] == "user")
     n_tools = sum(len(m.get("trace") or []) for m in st.session_state.chat)
     s1, s2 = st.columns(2)
@@ -480,7 +521,7 @@ with st.sidebar:
 # DIAGNÓSTICO (si se pidió)
 # ======================================================================
 if st.session_state.pop("run_diag", False):
-    with st.status("Revisando los sistemas del droide...", expanded=True) as estado:
+    with st.status("Verificando conectividad con las fuentes de datos...", expanded=True) as estado:
         st.session_state.diag = ejecutar_diagnostico()
         fallas = sum(1 for f in st.session_state.diag if f["Estado"] == "❌")
         if fallas:
@@ -489,7 +530,7 @@ if st.session_state.pop("run_diag", False):
             estado.update(label="Diagnóstico terminado: todos los sistemas operativos", state="complete")
 
 if st.session_state.get("diag"):
-    with st.expander("🧪 Resultado del diagnóstico", expanded=True):
+    with st.expander("Resultado del diagnóstico", expanded=True):
         st.dataframe(pd.DataFrame(st.session_state.diag), hide_index=True)
 
 # ======================================================================
@@ -497,20 +538,23 @@ if st.session_state.get("diag"):
 # ======================================================================
 if not st.session_state.chat:
     st.markdown(
-        html("""
-        <div class="hace-mucho">Hace mucho tiempo, en una galaxia muy, muy lejana...</div>
-        <div class="crawl-wrap"><div class="crawl">
-            <h3>EPISODIO I<br>EL DROIDE DE LOS DATOS</h3>
-            Las divisas fluctúan, las criptomonedas se disparan y la economía
-            galáctica vive tiempos de incertidumbre. Un pequeño droide
-            astromecánico, armado con diez herramientas y conexión a cuatro
-            redes de datos, ha despertado para ayudarte.<br><br>
-            Pregúntale por el tipo de cambio, el precio de las criptomonedas
-            o los indicadores del Banco Mundial. Su memoria guarda tus últimas
-            consultas, y sus respuestas se basan en datos reales.<br><br>
-            Elige una misión en el panel lateral o escribe tu primera
-            transmisión abajo...
-        </div></div>
+        html(f"""
+        <div class="brief">
+            <div class="brief-tag">SISTEMA EN LÍNEA</div>
+            <div class="brief-title">Bienvenido a {APP_NAME}</div>
+            <p>Asistente de inteligencia financiera con acceso en tiempo real a cuatro fuentes
+            de datos. Consulta cotizaciones, criptoactivos e indicadores macroeconómicos con
+            respuestas basadas en datos verificables.</p>
+            <div class="cards">
+                <div class="card"><div class="ci">◈</div><div class="ct">Divisas</div>
+                    <div class="cd">Tipo de cambio actual e histórico y conversión de montos.</div></div>
+                <div class="card"><div class="ci">◈</div><div class="ct">Criptoactivos</div>
+                    <div class="cd">Precios en vivo y ranking por capitalización de mercado.</div></div>
+                <div class="card"><div class="ci">◈</div><div class="ct">Macroeconomía</div>
+                    <div class="cd">Inflación, desempleo, PIB y comparativos entre países.</div></div>
+            </div>
+            <p class="brief-hint">Elige una consulta rápida en el panel lateral o escribe tu pregunta abajo.</p>
+        </div>
         """),
         unsafe_allow_html=True,
     )
@@ -527,7 +571,7 @@ for m in st.session_state.chat:
 # ENTRADA (chat o botón de misión rápida)
 # ======================================================================
 pendiente = st.session_state.pop("pending", None)
-escrito = st.chat_input("Transmite tu mensaje a la galaxia...")
+escrito = st.chat_input("Escribe tu consulta financiera...")
 user_text = (pendiente or escrito or "").strip()
 
 if user_text:
@@ -559,6 +603,6 @@ if user_text:
     st.rerun()  # refresca el historial y las estadísticas
 
 st.markdown(
-    '<div class="sw-foot">QUE LA FUERZA DE LOS DATOS TE ACOMPAÑE</div>',
+    f'<div class="hud-foot">{APP_NAME} CAPITAL INTELLIGENCE · INFORMACIÓN DE CARÁCTER INFORMATIVO, NO CONSTITUYE ASESORÍA FINANCIERA</div>',
     unsafe_allow_html=True,
 )
