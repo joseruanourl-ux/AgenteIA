@@ -11,11 +11,12 @@ from groq import Groq
 from agent import process_response
 from basic_memory import BasicMemory
 from intermediate_tools import IntermediateTools
+import storage
 
 # ======================================================================
 # CONFIGURACIÓN (cambia aquí el nombre y el emoji de la app)
 # ======================================================================
-APP_NAME = "LEST3R"
+APP_NAME = "AURUM"
 APP_TAGLINE = "Capital Intelligence · Divisas · Criptoactivos · Macroeconomía"
 APP_ICON = "💠"
 MEMORY_MAX_MESSAGES = 10
@@ -225,12 +226,71 @@ def activar(cid):
 
 def eliminar_conv(cid):
     st.session_state.convs.pop(cid, None)
+    if st.session_state.get("owner"):
+        try:
+            storage.eliminar(st.session_state.owner, cid)
+        except Exception as e:
+            st.session_state.sync_error = str(e)
     restantes = [c for c in st.session_state.convs.values() if c["chat"]]
     if st.session_state.current == cid or st.session_state.current not in st.session_state.convs:
         if restantes:
             activar(max(restantes, key=lambda c: c["updated"])["id"])
         else:
             activar(nueva_conv())
+
+
+def sincronizar(conv):
+    # Guarda una conversación en Supabase (si hay sesión). Un fallo nunca rompe la app.
+    if not st.session_state.get("owner") or not conv.get("chat"):
+        return
+    try:
+        storage.guardar(st.session_state.owner, conv)
+        st.session_state.pop("sync_error", None)
+    except Exception as e:
+        st.session_state.sync_error = str(e)
+
+
+def sincronizar_todas(excepto=()):
+    for c in list(st.session_state.convs.values()):
+        if c["id"] not in excepto:
+            sincronizar(c)
+
+
+def conectar(nombre: str, pin: str):
+    # Devuelve None si todo salió bien, o un texto con el problema.
+    if len(nombre.strip()) < 3 or len(pin) < 4:
+        return "El usuario necesita al menos 3 caracteres y el PIN al menos 4."
+    owner = storage.calcular_owner(nombre, pin)
+    try:
+        filas = storage.listar(owner)
+    except Exception as e:
+        return f"No se pudo conectar: {e}"
+    ids_nube = set()
+    for f in filas:
+        cid = str(f.get("id"))
+        ids_nube.add(cid)
+        if cid not in st.session_state.convs and f.get("chat"):
+            st.session_state.convs[cid] = {
+                "id": cid, "title": f.get("title") or TITULO_NUEVA,
+                "created": f.get("created") or _ahora(), "updated": f.get("updated") or _ahora(),
+                "chat": f["chat"],
+            }
+    st.session_state.owner = owner
+    st.session_state.owner_nombre = nombre.strip()
+    sincronizar_todas(excepto=ids_nube)  # sube lo que ya hubieras escrito antes de conectar
+    if not st.session_state.chat:
+        con_datos = [c for c in st.session_state.convs.values() if c["chat"]]
+        if con_datos:
+            activar(max(con_datos, key=lambda c: c["updated"])["id"])
+    return None
+
+
+def desconectar():
+    # Cierra la sesión y limpia lo que había en pantalla (útil en equipos compartidos).
+    for k in ("owner", "owner_nombre", "sync_error", "login_msg"):
+        st.session_state.pop(k, None)
+    st.session_state.convs = {}
+    activar(nueva_conv())
 
 
 def exportar_json() -> str:
@@ -297,10 +357,16 @@ MISIONES = {
         "¿Cuánto son 100 USD en quetzales?",
         "¿Cuál es el tipo de cambio del euro en quetzales?",
         "Tipo de cambio de EUR a USD el 2024-01-15",
+        "¿Cuál es el tipo de cambio oficial del Banguat hoy?",
     ],
     "Criptoactivos": [
         "¿Cuál es el precio de bitcoin?",
         "Dame el top 5 de criptomonedas",
+        "¿Cómo está el índice de miedo y codicia del mercado cripto?",
+    ],
+    "Referencia": [
+        "¿Qué es la inflación?",
+        "Dame datos de Costa Rica: población, capital y moneda",
     ],
     "Macroeconomía": [
         "¿Cuál es la inflación en Guatemala?",
@@ -308,6 +374,8 @@ MISIONES = {
         "Muéstrame una gráfica de la inflación de Guatemala de los últimos 10 años",
         "Compara en una gráfica el desempleo de GT, MX y CR",
         "Analiza el crecimiento del PIB de Guatemala y proyecta 3 años",
+        "¿Qué proyecta el FMI para el crecimiento de Guatemala?",
+        "¿Cuál es la deuda pública de Estados Unidos?",
         "Dame información básica de Guatemala",
     ],
 }
@@ -323,6 +391,13 @@ PRUEBAS = [
     ("consultar_conversion_moneda_api", "open.er-api", lambda t: t.consultar_conversion_moneda_api(100, "USD", "GTQ")),
     ("consultar_comparativo_indicador_banco_mundial_api", "Banco Mundial", lambda t: t.consultar_comparativo_indicador_banco_mundial_api("GT,MX,US", "desempleo")),
     ("consultar_info_pais_banco_mundial_api", "Banco Mundial", lambda t: t.consultar_info_pais_banco_mundial_api("GT")),
+    ("consultar_serie_historica_banco_mundial_api", "Banco Mundial", lambda t: t.consultar_serie_historica_banco_mundial_api("GT", "inflacion")),
+    ("consultar_proyecciones_fmi_api", "FMI", lambda t: t.consultar_proyecciones_fmi_api("GT", "crecimiento_pib")),
+    ("consultar_datos_pais_api", "REST Countries", lambda t: t.consultar_datos_pais_api("GT")),
+    ("consultar_deuda_publica_eeuu_api", "Tesoro de EE. UU.", lambda t: t.consultar_deuda_publica_eeuu_api("deuda")),
+    ("consultar_indice_miedo_codicia_api", "Alternative.me", lambda t: t.consultar_indice_miedo_codicia_api(1)),
+    ("consultar_concepto_wikipedia_api", "Wikipedia", lambda t: t.consultar_concepto_wikipedia_api("inflación")),
+    ("consultar_tipo_cambio_banguat_api", "Banguat", lambda t: t.consultar_tipo_cambio_banguat_api()),
 ]
 
 
@@ -366,6 +441,14 @@ def ejecutar_diagnostico():
         })
         if api == "CoinGecko" and i < len(PRUEBAS) - 1:
             time.sleep(1.2)  # evita el límite de peticiones de CoinGecko
+    if storage.disponible():
+        motivo = storage.probar()
+        filas.append({
+            "Estado": "✅" if motivo is None else "❌",
+            "Herramienta": "guardado de conversaciones",
+            "API": "Supabase",
+            "Detalle": "Conexión y tabla correctas" if motivo is None else motivo[:110],
+        })
     return filas
 
 
@@ -381,10 +464,13 @@ def exportar_conversacion() -> str:
 PALETA = ["#00d4ff", "#d4af37", "#4ade80", "#f472b6", "#a78bfa", "#fb923c"]
 
 
+SERIES_TOOLS = {"consultar_serie_historica_banco_mundial_api", "consultar_proyecciones_fmi_api"}
+
+
 def mostrar_graficos(trace):
     # Dibuja una gráfica por cada serie histórica consultada (datos reales del Banco Mundial).
     for t in trace or []:
-        if t.get("herramienta") != "consultar_serie_historica_banco_mundial_api":
+        if t.get("herramienta") not in SERIES_TOOLS:
             continue
         r = t.get("resultado")
         if not isinstance(r, dict) or not r.get("series"):
@@ -394,7 +480,8 @@ def mostrar_graficos(trace):
         if proy and proy.get("pais") in cols:
             base = cols[proy["pais"]]
             ultimo = max(base)
-            cols["Proyección (tendencia)"] = {ultimo: base[ultimo], **{int(a): v for a, v in proy["datos"].items()}}
+            etiqueta = "Proyección FMI" if "FMI" in proy.get("metodo", "") else "Proyección (tendencia)"
+            cols[etiqueta] = {ultimo: base[ultimo], **{int(a): v for a, v in proy["datos"].items()}}
         df = pd.DataFrame(cols).sort_index()
         df.index = df.index.astype(str)
         df.index.name = "Año"
@@ -412,8 +499,10 @@ def mostrar_graficos(trace):
                     f"Máx: {res['maximo']['valor']} ({res['maximo']['anio']}) · "
                     f"Promedio: {res['promedio']} · Tendencia: {res.get('tendencia', 'n/d')}"
                 )
-        nota = "Fuente: Banco Mundial (datos anuales)."
-        if proy:
+        nota = f"Fuente: {r.get('fuente', 'Banco Mundial (datos anuales)')}."
+        if proy and "FMI" in proy.get("metodo", ""):
+            nota += " La línea de proyección corresponde a las estimaciones oficiales del FMI."
+        elif proy:
             nota += " La línea de proyección es una extrapolación lineal simple, no un pronóstico oficial."
         st.caption(nota)
 
@@ -447,9 +536,10 @@ def render_ticker():
     if met.get("btc"):
         elementos.append(f'<span class="tk"><b>BTC/USD</b><i>{met["btc"]:,.0f}</i></span>')
     elementos += [
-        '<span class="tk"><b>DIVISAS</b><em>open.er-api · Frankfurter</em></span>',
-        '<span class="tk"><b>CRIPTO</b><em>CoinGecko</em></span>',
-        '<span class="tk"><b>MACRO</b><em>Banco Mundial</em></span>',
+        '<span class="tk"><b>DIVISAS</b><em>open.er-api · Frankfurter · Banguat</em></span>',
+        '<span class="tk"><b>CRIPTO</b><em>CoinGecko · Alternative.me</em></span>',
+        '<span class="tk"><b>MACRO</b><em>Banco Mundial · FMI · Tesoro EE. UU.</em></span>',
+        '<span class="tk"><b>REFERENCIA</b><em>REST Countries · Wikipedia</em></span>',
     ]
     grupo = '<span class="sep">◆</span>'.join(elementos) + '<span class="sep">◆</span>'
     st.markdown(
@@ -473,6 +563,30 @@ with st.sidebar:
         st.metric("Bitcoin", f"$ {met['btc']:,.0f}" if met["btc"] else "—")
     except Exception:
         st.caption("Sin conexión con las fuentes de mercado por ahora.")
+
+    st.header("CUENTA EN LA NUBE")
+    if not storage.disponible():
+        st.caption("Guardado en la nube sin configurar: faltan SUPABASE_URL y SUPABASE_KEY en Secrets.")
+    elif st.session_state.get("owner"):
+        st.caption(f"Sincronizado como **{st.session_state.owner_nombre}**. Cada respuesta se guarda automáticamente.")
+        if st.button("Cerrar sesión", key="logout", use_container_width=True):
+            desconectar()
+            st.rerun()
+    else:
+        st.text_input("Usuario", key="login_user")
+        st.text_input("PIN", type="password", key="login_pin")
+        if st.button("Conectar", key="login_btn", use_container_width=True):
+            error = conectar(st.session_state.login_user, st.session_state.login_pin)
+            if error:
+                st.session_state.login_msg = error
+            else:
+                st.session_state.pop("login_msg", None)
+            st.rerun()
+        if st.session_state.get("login_msg"):
+            st.caption("⚠️ " + st.session_state.login_msg)
+        st.caption("Sin usuario y PIN, tus conversaciones solo viven en esta sesión.")
+    if st.session_state.get("sync_error"):
+        st.caption("⚠️ No se pudo guardar en la nube: " + st.session_state.sync_error)
 
     st.header("HISTORIAL")
     if st.button("+ Nueva conversación", use_container_width=True):
@@ -547,10 +661,14 @@ with st.sidebar:
             st.session_state.import_msg = f"✅ {nuevas} conversación(es) cargada(s)" + (
                 f", {omitidas} ya existían u omitidas." if omitidas else "."
             )
+            sincronizar_todas()
         st.rerun()
     if st.session_state.get("import_msg"):
         st.caption(st.session_state.import_msg)
-    st.caption("Las conversaciones viven en esta sesión: si cierras la pestaña se pierden. Descarga el respaldo para conservarlas.")
+    if st.session_state.get("owner"):
+        st.caption("Tus conversaciones se guardan en la nube. El respaldo JSON es opcional.")
+    else:
+        st.caption("Las conversaciones viven en esta sesión: si cierras la pestaña se pierden. Conéctate a la nube o descarga el respaldo para conservarlas.")
 
     st.header("ESTADÍSTICAS")
     n_user = sum(1 for m in st.session_state.chat if m["role"] == "user")
@@ -558,7 +676,7 @@ with st.sidebar:
     s1, s2 = st.columns(2)
     s1.metric("Consultas", n_user)
     s2.metric("Herramientas", n_tools)
-    st.caption(f"Memoria: últimos {st.session_state.mem_n} mensajes · 10 herramientas · 4 APIs")
+    st.caption(f"Memoria: últimos {st.session_state.mem_n} mensajes · {len(PRUEBAS)} herramientas · {len({a for _, a, _ in PRUEBAS})} APIs")
 
 # ======================================================================
 # DIAGNÓSTICO (si se pidió)
@@ -585,16 +703,16 @@ if not st.session_state.chat:
         <div class="brief">
             <div class="brief-tag">SISTEMA EN LÍNEA</div>
             <div class="brief-title">Bienvenido a {APP_NAME}</div>
-            <p>Asistente de inteligencia financiera con acceso en tiempo real a cuatro fuentes
-            de datos. Consulta cotizaciones, criptoactivos e indicadores macroeconómicos con
+            <p>Asistente de inteligencia financiera con acceso en tiempo real a diez fuentes
+            de datos públicas. Consulta cotizaciones, criptoactivos e indicadores macroeconómicos con
             respuestas basadas en datos verificables.</p>
             <div class="cards">
                 <div class="card"><div class="ci">◈</div><div class="ct">Divisas</div>
-                    <div class="cd">Tipo de cambio actual e histórico y conversión de montos.</div></div>
+                    <div class="cd">Tipo de cambio de mercado y oficial del Banguat, histórico y conversión de montos.</div></div>
                 <div class="card"><div class="ci">◈</div><div class="ct">Criptoactivos</div>
-                    <div class="cd">Precios en vivo y ranking por capitalización de mercado.</div></div>
+                    <div class="cd">Precios en vivo, ranking por capitalización e índice de miedo y codicia.</div></div>
                 <div class="card"><div class="ci">◈</div><div class="ct">Macroeconomía</div>
-                    <div class="cd">Inflación, desempleo y PIB con gráficas históricas, comparativos y proyección de tendencia.</div></div>
+                    <div class="cd">Gráficas históricas, proyecciones del FMI, deuda de EE. UU. y datos por país.</div></div>
             </div>
             <p class="brief-hint">Elige una consulta rápida en el panel lateral o escribe tu pregunta abajo.</p>
         </div>
@@ -645,6 +763,7 @@ if user_text:
     st.session_state.memory.add("user", user_text)
     st.session_state.memory.add("assistant", assistant_text)
     st.session_state.convs[st.session_state.current]["updated"] = _ahora()
+    sincronizar(st.session_state.convs[st.session_state.current])
     st.rerun()  # refresca el historial y las estadísticas
 
 st.markdown(

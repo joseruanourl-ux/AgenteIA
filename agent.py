@@ -25,6 +25,12 @@ Herramientas:
 - consultar_conversion_moneda_api: convierte un monto de una moneda a otra. El monto y la moneda base son obligatorios, la moneda destino es opcional (por defecto GTQ).
 - consultar_comparativo_indicador_banco_mundial_api: compara un indicador macroeconómico entre varios países. La lista de países (2 letras, separados por coma, ej. GT,MX,US) y el indicador (nombre simple o código del Banco Mundial) son obligatorios.
 - consultar_serie_historica_banco_mundial_api: da la serie histórica ANUAL de un indicador para uno o varios países (hasta 5), con resumen estadístico (mínimo, máximo, promedio, variación, tendencia) y proyección opcional. Países (2 letras, separados por coma) e indicador (nombre simple o código) son obligatorios; año inicial, año final y años a proyectar (0 a 5) son opcionales (por defecto, los últimos 10 años y sin proyección).
+- consultar_proyecciones_fmi_api: da la serie anual de un indicador con las PROYECCIONES OFICIALES del FMI (World Economic Outlook, se actualiza en abril y octubre). El país es obligatorio; el indicador es opcional y debe ser uno de: crecimiento_pib (por defecto), inflacion, desempleo, deuda_publica, pib_per_capita, cuenta_corriente, pib_usd. Año inicial y final son opcionales.
+- consultar_datos_pais_api: da datos generales de un país (capital, región, población, área, monedas, idiomas). Acepta nombre o código.
+- consultar_deuda_publica_eeuu_api: da la deuda pública total de Estados Unidos (Tesoro de EE. UU.) con su variación anual, o las tasas de interés promedio de los títulos del Tesoro. El parámetro dato es opcional: deuda (por defecto) o tasas_interes.
+- consultar_indice_miedo_codicia_api: da el índice de miedo y codicia del mercado de criptomonedas (0 a 100). Los días de historial son opcionales (1 a 30).
+- consultar_concepto_wikipedia_api: da el resumen de un concepto desde Wikipedia (por ejemplo, un término económico). El tema es obligatorio; el idioma es opcional (es o en).
+- consultar_tipo_cambio_banguat_api: da el tipo de cambio de referencia oficial del dólar en quetzales publicado por el Banco de Guatemala. No necesita parámetros.
 - consultar_info_pais_banco_mundial_api: da información básica de un país (región, nivel de ingreso, capital) según el Banco Mundial. El código de país de 2 letras es obligatorio.
 
 Si una herramienta regresa un error (por ejemplo, falta de un dato obligatorio o dato no disponible),
@@ -35,6 +41,10 @@ Reglas de análisis y gráficas:
 - Los datos del Banco Mundial son anuales y pueden tener 1 a 2 años de retraso. No hay datos trimestrales ni desglose por rubro (alimentos, vivienda, transporte, etc.): si te lo piden, dilo con honestidad y ofrece la inflación anual general como alternativa.
 - Una proyección es solo una extrapolación de tendencia lineal simple, no un pronóstico oficial: acláralo siempre que la presentes.
 - Para consultas simples de un dato, regresa el resultado de la herramienta tal cual, considerándolo correcto.
+- Si piden el tipo de cambio oficial o de referencia de Guatemala, usa consultar_tipo_cambio_banguat_api y cita al Banco de Guatemala.
+- Si piden proyecciones o pronósticos oficiales, usa consultar_proyecciones_fmi_api (la app dibuja la gráfica sola) y cita al FMI. Para una proyección de tendencia propia usa proyectar_anios en la serie histórica.
+- Si piden definir un concepto, usa consultar_concepto_wikipedia_api, explícalo con tus propias palabras y menciona que la fuente es Wikipedia.
+- Menciona siempre la fuente de los datos (Banco Mundial, FMI, Tesoro de EE. UU., Banguat, etc.).
 """
 
 TOOLS = [
@@ -327,6 +337,133 @@ TOOLS = [
                 "required": ["paises", "indicador"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_proyecciones_fmi_api",
+            "description": (
+                "Consulta la serie anual de un indicador macroeconomico de un pais con las proyecciones oficiales del FMI (World Economic Outlook). Sirve para graficar y para saber que proyecta el FMI."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pais": {
+                        "type": "string",
+                        "description": "Codigo de pais de 2 letras, por ejemplo GT, MX, US"
+                    },
+                    "indicador": {
+                        "type": "string",
+                        "description": "Opcional. crecimiento_pib, inflacion, desempleo, deuda_publica, pib_per_capita, cuenta_corriente o pib_usd. Por defecto crecimiento_pib"
+                    },
+                    "anio_inicio": {
+                        "type": "integer",
+                        "description": "Opcional. Ano inicial, por ejemplo 2020"
+                    },
+                    "anio_fin": {
+                        "type": "integer",
+                        "description": "Opcional. Ano final, por ejemplo 2030"
+                    }
+                },
+                "required": ["pais"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_datos_pais_api",
+            "description": (
+                "Consulta datos generales de un pais: capital, region, poblacion, area, monedas e idiomas (REST Countries)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pais": {
+                        "type": "string",
+                        "description": "Nombre del pais o codigo de 2 letras, por ejemplo Guatemala o GT"
+                    }
+                },
+                "required": ["pais"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_deuda_publica_eeuu_api",
+            "description": (
+                "Consulta la deuda publica total de Estados Unidos con su variacion anual, o las tasas de interes promedio de los titulos del Tesoro (Tesoro de EE. UU.)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dato": {
+                        "type": "string",
+                        "description": "Opcional. deuda (por defecto) o tasas_interes"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_indice_miedo_codicia_api",
+            "description": (
+                "Consulta el indice de miedo y codicia del mercado de criptomonedas (0 a 100) y opcionalmente su historial reciente."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dias": {
+                        "type": "integer",
+                        "description": "Opcional. Cantidad de dias de historial entre 1 y 30. Por defecto 1"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_concepto_wikipedia_api",
+            "description": (
+                "Consulta el resumen de un concepto o termino en Wikipedia, util para definir conceptos economicos y financieros."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tema": {
+                        "type": "string",
+                        "description": "Concepto a consultar, por ejemplo inflacion o tasa de interes"
+                    },
+                    "idioma": {
+                        "type": "string",
+                        "description": "Opcional. es (por defecto) o en"
+                    }
+                },
+                "required": ["tema"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "consultar_tipo_cambio_banguat_api",
+            "description": (
+                "Consulta el tipo de cambio de referencia oficial del dolar en quetzales publicado por el Banco de Guatemala. No requiere parametros."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+
+                },
+                "required": []
+            }
+        }
     }
 ]
 
@@ -420,6 +557,26 @@ def process_response(client:Groq, memory_messages: list[dict], user_text:str, tr
                     anio_fin=args.get("anio_fin"),
                     proyectar_anios=args.get("proyectar_anios", 0)
                 )
+            elif name == "consultar_proyecciones_fmi_api":
+                result = tools.consultar_proyecciones_fmi_api(
+                    pais=args["pais"],
+                    indicador=args.get("indicador", "crecimiento_pib"),
+                    anio_inicio=args.get("anio_inicio"),
+                    anio_fin=args.get("anio_fin")
+                )
+            elif name == "consultar_datos_pais_api":
+                result = tools.consultar_datos_pais_api(pais=args["pais"])
+            elif name == "consultar_deuda_publica_eeuu_api":
+                result = tools.consultar_deuda_publica_eeuu_api(dato=args.get("dato", "deuda"))
+            elif name == "consultar_indice_miedo_codicia_api":
+                result = tools.consultar_indice_miedo_codicia_api(dias=args.get("dias", 1))
+            elif name == "consultar_concepto_wikipedia_api":
+                result = tools.consultar_concepto_wikipedia_api(
+                    tema=args["tema"],
+                    idioma=args.get("idioma", "es")
+                )
+            elif name == "consultar_tipo_cambio_banguat_api":
+                result = tools.consultar_tipo_cambio_banguat_api()
             else:
                 print(f"Se intentó llamar a una herramienta desconocida {name}")
                 result = {"error": f"Herramienta desconocida: {name}"}

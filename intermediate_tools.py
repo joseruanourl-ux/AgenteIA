@@ -6,7 +6,9 @@
 # Importacion para el manejo de sistema
 import os
 import unicodedata
-from datetime import datetime
+import xml.etree.ElementTree as ET
+from datetime import date, datetime, timedelta, timezone
+from urllib.parse import quote
 import requests
 
 
@@ -512,6 +514,7 @@ class IntermediateTools:
             "codigo": codigo,
             "periodo_solicitado": f"{ini}-{fin}",
             "frecuencia": "anual (el Banco Mundial suele publicar con 1 a 2 años de retraso)",
+            "fuente": "Banco Mundial (datos anuales)",
             "series": series,
         }
 
@@ -534,6 +537,380 @@ class IntermediateTools:
         if errores:
             salida["paises_sin_datos"] = errores
         return salida
+
+    # ==================================================================
+    # APIs adicionales (todas publicas, sin clave y sin registro)
+    # ==================================================================
+
+    # Pais: codigo ISO2 -> (codigo ISO3 que usa el FMI, nombre para mostrar)
+    _ISO = {
+        "GT": ("GTM", "Guatemala"), "MX": ("MEX", "México"), "US": ("USA", "Estados Unidos"),
+        "CR": ("CRI", "Costa Rica"), "HN": ("HND", "Honduras"), "SV": ("SLV", "El Salvador"),
+        "NI": ("NIC", "Nicaragua"), "PA": ("PAN", "Panamá"), "BZ": ("BLZ", "Belice"),
+        "CO": ("COL", "Colombia"), "VE": ("VEN", "Venezuela"), "EC": ("ECU", "Ecuador"),
+        "PE": ("PER", "Perú"), "BO": ("BOL", "Bolivia"), "CL": ("CHL", "Chile"),
+        "AR": ("ARG", "Argentina"), "UY": ("URY", "Uruguay"), "PY": ("PRY", "Paraguay"),
+        "BR": ("BRA", "Brasil"), "CU": ("CUB", "Cuba"), "DO": ("DOM", "República Dominicana"),
+        "ES": ("ESP", "España"), "DE": ("DEU", "Alemania"), "FR": ("FRA", "Francia"),
+        "IT": ("ITA", "Italia"), "GB": ("GBR", "Reino Unido"), "CA": ("CAN", "Canadá"),
+        "CN": ("CHN", "China"), "JP": ("JPN", "Japón"), "IN": ("IND", "India"),
+    }
+
+    _FMI_INDICADORES = {
+        "crecimiento_pib": ("NGDP_RPCH", "Crecimiento del PIB real (% anual)"),
+        "inflacion": ("PCPIPCH", "Inflación, precios al consumidor (% anual)"),
+        "desempleo": ("LUR", "Tasa de desempleo (%)"),
+        "deuda_publica": ("GGXWDG_NGDP", "Deuda bruta del gobierno (% del PIB)"),
+        "pib_per_capita": ("NGDPDPC", "PIB per cápita (USD corrientes)"),
+        "cuenta_corriente": ("BCA_NGDPD", "Balance de cuenta corriente (% del PIB)"),
+        "pib_usd": ("NGDPD", "PIB (miles de millones de USD corrientes)"),
+    }
+
+    # 5) FMI (World Economic Outlook, DataMapper): historico + PROYECCIONES OFICIALES
+    def consultar_proyecciones_fmi_api(self, pais: str, indicador: str = "crecimiento_pib", anio_inicio=None, anio_fin=None):
+        print(f"Herramienta consultar_proyecciones_fmi_api llamada con pais: {pais}, indicador: {indicador}, anio_inicio: {anio_inicio}, anio_fin: {anio_fin}")
+
+        if not pais:
+            return "Error: Se requiere el código de país (ej. GT, MX, US)."
+
+        clave = (indicador or "crecimiento_pib").strip().lower()
+        if clave in self._FMI_INDICADORES:
+            codigo, nombre_ind = self._FMI_INDICADORES[clave]
+        else:
+            codigo, nombre_ind = clave.upper(), clave.upper()
+
+        iso2 = self._normalizar_pais(pais)
+        if len(iso2) == 3:
+            iso3, nombre_pais = iso2, iso2
+        else:
+            iso3, nombre_pais = self._ISO.get(iso2, (iso2, iso2))
+
+        actual = datetime.now().year
+        try:
+            ini = int(anio_inicio) if anio_inicio else actual - 7
+            fin = int(anio_fin) if anio_fin else actual + 5
+        except (TypeError, ValueError):
+            return "Error: los años deben ser números (ej. 2020)."
+        if ini > fin:
+            return "Error: el año inicial debe ser menor o igual que el final."
+
+        url = f"https://www.imf.org/external/datamapper/api/v1/{codigo}/{iso3}"
+        try:
+            response = requests.get(url, headers=self._default_headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            print(f"Error al consultar_proyecciones_fmi_api: {e}")
+            return f"ERROR: No se pudo consultar al FMI ({type(e).__name__}: {e})"
+
+        serie = (((data or {}).get("values") or {}).get(codigo) or {}).get(iso3) or {}
+        puntos = {}
+        for a, v in serie.items():
+            try:
+                anio = int(a)
+                if v is not None and ini <= anio <= fin:
+                    puntos[anio] = round(float(v), 2)
+            except (TypeError, ValueError):
+                continue
+        if not puntos:
+            return f"ERROR: El FMI no tiene datos de {indicador} para {pais} ({iso3}) en {ini}-{fin}."
+
+        puntos = dict(sorted(puntos.items()))
+        reales = {a: v for a, v in puntos.items() if a < actual}
+        futuros = {a: v for a, v in puntos.items() if a >= actual}
+        base = reales or futuros
+
+        salida = {
+            "indicador": f"{nombre_ind} · FMI",
+            "codigo": codigo,
+            "periodo_solicitado": f"{ini}-{fin}",
+            "frecuencia": "anual",
+            "fuente": "FMI, World Economic Outlook (se actualiza en abril y octubre)",
+            "series": {nombre_pais: {
+                "datos": {str(a): v for a, v in base.items()},
+                "resumen": self._resumen_serie(base),
+            }},
+        }
+        if reales and futuros:
+            salida["proyeccion"] = {
+                "pais": nombre_pais,
+                "metodo": "Proyecciones oficiales del FMI (World Economic Outlook)",
+                "datos": {str(a): v for a, v in futuros.items()},
+            }
+        return salida
+
+    # 6) REST Countries: datos generales de un pais (poblacion, monedas, idiomas, capital...)
+    def consultar_datos_pais_api(self, pais: str):
+        print(f"Herramienta consultar_datos_pais_api llamada con pais: {pais}")
+
+        if not pais or not str(pais).strip():
+            return "Error: Se requiere el nombre o código del país (ej. Guatemala o GT)."
+
+        entrada = str(pais).strip()
+        cod = self._normalizar_pais(entrada)
+        campos = "name,capital,region,subregion,population,area,currencies,languages"
+        base = "https://restcountries.com/v3.1"
+        if len(cod) in (2, 3) and cod.isalpha():
+            urls = [f"{base}/alpha/{cod}"]
+        else:
+            urls = [f"{base}/translation/{quote(entrada)}", f"{base}/name/{quote(entrada)}"]
+
+        d, errores = None, []
+        for url in urls:
+            try:
+                response = requests.get(url, params={"fields": campos}, headers=self._default_headers, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+                d = data[0] if isinstance(data, list) and data else data
+                if isinstance(d, dict) and d.get("name"):
+                    break
+                d = None
+            except Exception as e:
+                errores.append(f"{type(e).__name__}: {e}")
+        if not d:
+            print(f"Error en consultar_datos_pais_api: {errores}")
+            return f"ERROR: No se encontró información del país '{pais}'. Detalle: {errores}"
+
+        poblacion, area = d.get("population"), d.get("area")
+        return {
+            "nombre": (d.get("name") or {}).get("common"),
+            "nombre_oficial": (d.get("name") or {}).get("official"),
+            "capital": d.get("capital"),
+            "region": d.get("region"),
+            "subregion": d.get("subregion"),
+            "poblacion": poblacion,
+            "area_km2": area,
+            "densidad_hab_km2": round(poblacion / area, 1) if poblacion and area else None,
+            "monedas": [
+                {"codigo": c, "nombre": v.get("name"), "simbolo": v.get("symbol")}
+                for c, v in (d.get("currencies") or {}).items()
+            ],
+            "idiomas": list((d.get("languages") or {}).values()),
+            "fuente": "REST Countries",
+        }
+
+    # 7) Tesoro de EE. UU. (FiscalData): deuda publica o tasas de interes promedio
+    def consultar_deuda_publica_eeuu_api(self, dato: str = "deuda"):
+        print(f"Herramienta consultar_deuda_publica_eeuu_api llamada con dato: {dato}")
+
+        base = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od"
+        dato = (dato or "deuda").strip().lower()
+
+        try:
+            if dato.startswith("tasa"):
+                response = requests.get(
+                    f"{base}/avg_interest_rates",
+                    params={"sort": "-record_date", "page[size]": 60,
+                            "fields": "record_date,security_type_desc,security_desc,avg_interest_rate_amt"},
+                    headers=self._default_headers, timeout=30)
+                response.raise_for_status()
+                filas = response.json().get("data") or []
+                if not filas:
+                    return "ERROR: El Tesoro de EE. UU. no devolvió tasas de interés."
+                fecha = filas[0]["record_date"]
+                tasas = {}
+                for f in filas:
+                    if f.get("record_date") != fecha:
+                        continue
+                    try:
+                        tasas[f["security_desc"]] = float(f["avg_interest_rate_amt"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                return {
+                    "fuente": "Tesoro de EE. UU. (FiscalData)",
+                    "fecha": fecha,
+                    "tasas_interes_promedio_pct": tasas,
+                }
+
+            response = requests.get(
+                f"{base}/debt_to_penny",
+                params={"sort": "-record_date", "page[size]": 1,
+                        "fields": "record_date,tot_pub_debt_out_amt,debt_held_public_amt,intragov_hold_amt"},
+                headers=self._default_headers, timeout=30)
+            response.raise_for_status()
+            filas = response.json().get("data") or []
+            if not filas:
+                return "ERROR: El Tesoro de EE. UU. no devolvió datos de deuda."
+            ultimo = filas[0]
+            fecha = ultimo["record_date"]
+            total = float(ultimo["tot_pub_debt_out_amt"])
+            salida = {
+                "fuente": "Tesoro de EE. UU. (FiscalData, Debt to the Penny)",
+                "fecha": fecha,
+                "deuda_total_usd": round(total, 2),
+                "deuda_total_billones_usd": round(total / 1e12, 3),
+                "nota_unidad": "1 billón = un millón de millones (10^12), equivalente al 'trillion' en inglés",
+            }
+            for clave, campo in (("deuda_en_manos_del_publico_billones_usd", "debt_held_public_amt"),
+                                 ("deuda_intragubernamental_billones_usd", "intragov_hold_amt")):
+                try:
+                    salida[clave] = round(float(ultimo[campo]) / 1e12, 3)
+                except (KeyError, TypeError, ValueError):
+                    pass
+
+            # Comparacion contra hace un año (si esta segunda consulta falla, se omite sin romper nada)
+            try:
+                hace_un_anio = (date.fromisoformat(fecha) - timedelta(days=365)).isoformat()
+                r2 = requests.get(
+                    f"{base}/debt_to_penny",
+                    params={"filter": f"record_date:lte:{hace_un_anio}", "sort": "-record_date",
+                            "page[size]": 1, "fields": "record_date,tot_pub_debt_out_amt"},
+                    headers=self._default_headers, timeout=30)
+                r2.raise_for_status()
+                previo = (r2.json().get("data") or [None])[0]
+                if previo:
+                    antes = float(previo["tot_pub_debt_out_amt"])
+                    salida["hace_un_anio"] = {
+                        "fecha": previo["record_date"],
+                        "deuda_total_billones_usd": round(antes / 1e12, 3),
+                        "variacion_pct": round((total / antes - 1) * 100, 2),
+                    }
+            except Exception as e:
+                print(f"Aviso en consultar_deuda_publica_eeuu_api (comparación anual omitida): {e}")
+            return salida
+        except Exception as e:
+            print(f"Error al consultar_deuda_publica_eeuu_api: {e}")
+            return f"ERROR: No se pudo consultar al Tesoro de EE. UU. ({type(e).__name__}: {e})"
+
+    # 8) Alternative.me: indice de miedo y codicia del mercado cripto
+    def consultar_indice_miedo_codicia_api(self, dias: int = 1):
+        print(f"Herramienta consultar_indice_miedo_codicia_api llamada con dias: {dias}")
+
+        try:
+            n = max(1, min(int(dias or 1), 30))
+        except (TypeError, ValueError):
+            n = 1
+
+        traduccion = {
+            "Extreme Fear": "Miedo extremo", "Fear": "Miedo", "Neutral": "Neutral",
+            "Greed": "Codicia", "Extreme Greed": "Codicia extrema",
+        }
+        try:
+            response = requests.get("https://api.alternative.me/fng/", params={"limit": n},
+                                    headers=self._default_headers, timeout=30)
+            response.raise_for_status()
+            datos = response.json().get("data") or []
+            if not datos:
+                return "ERROR: Alternative.me no devolvió datos del índice."
+            filas = []
+            for d in datos:
+                fecha = datetime.fromtimestamp(int(d["timestamp"]), timezone.utc).strftime("%Y-%m-%d")
+                filas.append({
+                    "fecha": fecha,
+                    "valor": int(d["value"]),
+                    "clasificacion": traduccion.get(d.get("value_classification"), d.get("value_classification")),
+                })
+        except Exception as e:
+            print(f"Error al consultar_indice_miedo_codicia_api: {e}")
+            return f"ERROR: No se pudo consultar el índice de miedo y codicia ({type(e).__name__}: {e})"
+
+        salida = {
+            "fuente": "Alternative.me, Crypto Fear & Greed Index",
+            "escala": "0 = miedo extremo, 100 = codicia extrema (mide el ánimo del mercado cripto)",
+            "actual": filas[0],
+        }
+        if n > 1:
+            salida["historial_mas_reciente_primero"] = filas
+            salida["promedio"] = round(sum(f["valor"] for f in filas) / len(filas), 1)
+        return salida
+
+    # 9) Wikipedia: definicion breve de un concepto (es / en)
+    def consultar_concepto_wikipedia_api(self, tema: str, idioma: str = "es"):
+        print(f"Herramienta consultar_concepto_wikipedia_api llamada con tema: {tema}, idioma: {idioma}")
+
+        if not tema or not str(tema).strip():
+            return "Error: Se requiere el tema o concepto a consultar (ej. inflación)."
+
+        idioma = idioma if idioma in ("es", "en") else "es"
+        # Wikimedia pide un User-Agent descriptivo (los genericos pueden ser bloqueados)
+        cabeceras = {"User-Agent": "AurumAgent/1.0 (proyecto academico de Data Analytics; Streamlit)",
+                     "Accept": "application/json"}
+        try:
+            r1 = requests.get(
+                f"https://{idioma}.wikipedia.org/w/api.php",
+                params={"action": "opensearch", "search": str(tema).strip(), "limit": 1,
+                        "namespace": 0, "format": "json"},
+                headers=cabeceras, timeout=30)
+            r1.raise_for_status()
+            res = r1.json()
+            titulos = res[1] if isinstance(res, list) and len(res) > 1 else []
+            if not titulos:
+                return f"ERROR: No se encontró un artículo de Wikipedia para '{tema}'."
+            titulo = titulos[0]
+            r2 = requests.get(
+                f"https://{idioma}.wikipedia.org/api/rest_v1/page/summary/{quote(titulo.replace(' ', '_'), safe='')}",
+                headers=cabeceras, timeout=30)
+            r2.raise_for_status()
+            d = r2.json()
+        except Exception as e:
+            print(f"Error al consultar_concepto_wikipedia_api: {e}")
+            return f"ERROR: No se pudo consultar Wikipedia ({type(e).__name__}: {e})"
+
+        extracto = (d.get("extract") or "").strip()
+        if len(extracto) > 900:
+            extracto = extracto[:900].rsplit(" ", 1)[0] + "…"
+        salida = {
+            "titulo": d.get("title", titulo),
+            "descripcion": d.get("description"),
+            "resumen": extracto,
+            "url": ((d.get("content_urls") or {}).get("desktop") or {}).get("page"),
+            "fuente": f"Wikipedia ({idioma}), licencia CC BY-SA",
+        }
+        if d.get("type") == "disambiguation":
+            salida["aviso"] = "El término es ambiguo (página de desambiguación); conviene que el usuario sea más específico."
+        return salida
+
+    # 10) Banco de Guatemala: tipo de cambio de referencia oficial (servicio web SOAP publico)
+    @staticmethod
+    def _leer_banguat(contenido):
+        try:
+            raiz = ET.fromstring(contenido)
+        except ET.ParseError:
+            return None
+        for el in raiz.iter():
+            if el.tag.split("}")[-1] == "VarDolar":
+                campos = {h.tag.split("}")[-1]: (h.text or "").strip() for h in el}
+                try:
+                    ref = float(campos.get("referencia", ""))
+                except ValueError:
+                    continue
+                return {
+                    "fuente": "Banco de Guatemala (tipo de cambio de referencia)",
+                    "fecha": campos.get("fecha"),
+                    "referencia_gtq_por_usd": ref,
+                    "nota": "Es el tipo de cambio de referencia del día; los bancos comerciales fijan su propio precio de compra y venta.",
+                }
+        return None
+
+    def consultar_tipo_cambio_banguat_api(self):
+        print("Herramienta consultar_tipo_cambio_banguat_api llamada")
+
+        url = "https://banguat.gob.gt/variables/ws/TipoCambio.asmx"
+        ns = "http://www.banguat.gob.gt/variables/ws/"
+        sobre = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">'
+            f'<soap:Body><TipoCambioDia xmlns="{ns}" /></soap:Body></soap:Envelope>'
+        )
+        ua = {"User-Agent": self._default_headers["User-Agent"]}
+        errores = []
+        for intento in ("soap", "get"):
+            try:
+                if intento == "soap":
+                    response = requests.post(
+                        url, data=sobre.encode("utf-8"), timeout=30,
+                        headers={**ua, "Content-Type": "text/xml; charset=utf-8", "SOAPAction": f'"{ns}TipoCambioDia"'})
+                else:
+                    response = requests.get(f"{url}/TipoCambioDia", headers=ua, timeout=30)
+                response.raise_for_status()
+                dato = self._leer_banguat(response.content)
+                if dato:
+                    return dato
+                errores.append(f"{intento}: la respuesta no trae tipo de cambio")
+            except Exception as e:
+                errores.append(f"{intento}: {type(e).__name__}: {e}")
+        print(f"Error al consultar_tipo_cambio_banguat_api: {errores}")
+        return f"ERROR: No se pudo consultar el tipo de cambio del Banguat. Detalle: {errores}"
 
     # Herramienta para consultar informacion basica de un pais (Banco Mundial,
     # mismo proveedor que las otras herramientas de indicadores; reemplaza a
