@@ -26,7 +26,7 @@ Herramientas:
 - consultar_comparativo_indicador_banco_mundial_api: compara un indicador macroeconómico entre varios países. La lista de países (2 letras, separados por coma, ej. GT,MX,US) y el indicador (nombre simple o código del Banco Mundial) son obligatorios.
 - consultar_serie_historica_banco_mundial_api: da la serie histórica ANUAL de un indicador para uno o varios países (hasta 5), con resumen estadístico (mínimo, máximo, promedio, variación, tendencia) y proyección opcional. Países (2 letras, separados por coma) e indicador (nombre simple o código) son obligatorios; año inicial, año final y años a proyectar (0 a 5) son opcionales (por defecto, los últimos 10 años y sin proyección).
 - consultar_proyecciones_fmi_api: da la serie anual de un indicador con las PROYECCIONES OFICIALES del FMI (World Economic Outlook, se actualiza en abril y octubre). El país es obligatorio; el indicador es opcional y debe ser uno de: crecimiento_pib (por defecto), inflacion, desempleo, deuda_publica, pib_per_capita, cuenta_corriente, pib_usd. Año inicial y final son opcionales.
-- consultar_datos_pais_api: da datos generales de un país (capital, región, población, área, monedas, idiomas). Acepta nombre o código.
+- consultar_clima_api: da el clima actual y el pronóstico de varios días de una ciudad (Open-Meteo). La ciudad es obligatoria; los días (1 a 7) son opcionales (por defecto 3).
 - consultar_deuda_publica_eeuu_api: da la deuda pública total de Estados Unidos (Tesoro de EE. UU.) con su variación anual, o las tasas de interés promedio de los títulos del Tesoro. El parámetro dato es opcional: deuda (por defecto) o tasas_interes.
 - consultar_indice_miedo_codicia_api: da el índice de miedo y codicia del mercado de criptomonedas (0 a 100). Los días de historial son opcionales (1 a 30).
 - consultar_concepto_wikipedia_api: da el resumen de un concepto desde Wikipedia (por ejemplo, un término económico). El tema es obligatorio; el idioma es opcional (es o en).
@@ -44,6 +44,7 @@ Reglas de análisis y gráficas:
 - Si piden el tipo de cambio oficial o de referencia de Guatemala, usa consultar_tipo_cambio_banguat_api y cita al Banco de Guatemala.
 - Si piden proyecciones o pronósticos oficiales, usa consultar_proyecciones_fmi_api (la app dibuja la gráfica sola) y cita al FMI. Para una proyección de tendencia propia usa proyectar_anios en la serie histórica.
 - Si piden definir un concepto, usa consultar_concepto_wikipedia_api, explícalo con tus propias palabras y menciona que la fuente es Wikipedia.
+- Si piden el clima o el pronóstico del tiempo de una ciudad, usa consultar_clima_api e indica que la fuente es Open-Meteo.
 - Menciona siempre la fuente de los datos (Banco Mundial, FMI, Tesoro de EE. UU., Banguat, etc.).
 """
 
@@ -372,19 +373,23 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "consultar_datos_pais_api",
+            "name": "consultar_clima_api",
             "description": (
-                "Consulta datos generales de un pais: capital, region, poblacion, area, monedas e idiomas (REST Countries)."
+                "Consulta el clima actual y el pronostico de los proximos dias de una ciudad (Open-Meteo)."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "pais": {
+                    "ciudad": {
                         "type": "string",
-                        "description": "Nombre del pais o codigo de 2 letras, por ejemplo Guatemala o GT"
+                        "description": "Nombre de la ciudad, por ejemplo Guatemala, Madrid o Nueva York"
+                    },
+                    "dias": {
+                        "type": "integer",
+                        "description": "Opcional. Dias de pronostico entre 1 y 7. Por defecto 3"
                     }
                 },
-                "required": ["pais"]
+                "required": ["ciudad"]
             }
         }
     },
@@ -564,8 +569,8 @@ def process_response(client:Groq, memory_messages: list[dict], user_text:str, tr
                     anio_inicio=args.get("anio_inicio"),
                     anio_fin=args.get("anio_fin")
                 )
-            elif name == "consultar_datos_pais_api":
-                result = tools.consultar_datos_pais_api(pais=args["pais"])
+            elif name == "consultar_clima_api":
+                result = tools.consultar_clima_api(ciudad=args["ciudad"], dias=args.get("dias", 3))
             elif name == "consultar_deuda_publica_eeuu_api":
                 result = tools.consultar_deuda_publica_eeuu_api(dato=args.get("dato", "deuda"))
             elif name == "consultar_indice_miedo_codicia_api":

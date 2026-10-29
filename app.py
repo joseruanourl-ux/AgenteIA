@@ -366,7 +366,7 @@ MISIONES = {
     ],
     "Referencia": [
         "¿Qué es la inflación?",
-        "Dame datos de Costa Rica: población, capital y moneda",
+        "¿Qué clima hay hoy en la Ciudad de Guatemala?",
     ],
     "Macroeconomía": [
         "¿Cuál es la inflación en Guatemala?",
@@ -393,7 +393,7 @@ PRUEBAS = [
     ("consultar_info_pais_banco_mundial_api", "Banco Mundial", lambda t: t.consultar_info_pais_banco_mundial_api("GT")),
     ("consultar_serie_historica_banco_mundial_api", "Banco Mundial", lambda t: t.consultar_serie_historica_banco_mundial_api("GT", "inflacion")),
     ("consultar_proyecciones_fmi_api", "FMI", lambda t: t.consultar_proyecciones_fmi_api("GT", "crecimiento_pib")),
-    ("consultar_datos_pais_api", "REST Countries", lambda t: t.consultar_datos_pais_api("GT")),
+    ("consultar_clima_api", "Open-Meteo", lambda t: t.consultar_clima_api("Guatemala")),
     ("consultar_deuda_publica_eeuu_api", "Tesoro de EE. UU.", lambda t: t.consultar_deuda_publica_eeuu_api("deuda")),
     ("consultar_indice_miedo_codicia_api", "Alternative.me", lambda t: t.consultar_indice_miedo_codicia_api(1)),
     ("consultar_concepto_wikipedia_api", "Wikipedia", lambda t: t.consultar_concepto_wikipedia_api("inflación")),
@@ -539,7 +539,7 @@ def render_ticker():
         '<span class="tk"><b>DIVISAS</b><em>open.er-api · Frankfurter · Banguat</em></span>',
         '<span class="tk"><b>CRIPTO</b><em>CoinGecko · Alternative.me</em></span>',
         '<span class="tk"><b>MACRO</b><em>Banco Mundial · FMI · Tesoro EE. UU.</em></span>',
-        '<span class="tk"><b>REFERENCIA</b><em>REST Countries · Wikipedia</em></span>',
+        '<span class="tk"><b>REFERENCIA</b><em>Open-Meteo · Wikipedia</em></span>',
     ]
     grupo = '<span class="sep">◆</span>'.join(elementos) + '<span class="sep">◆</span>'
     st.markdown(

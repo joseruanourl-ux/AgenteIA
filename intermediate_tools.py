@@ -4,6 +4,8 @@
 #######################
 
 # Importacion para el manejo de sistema
+import csv
+import io
 import os
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -566,7 +568,54 @@ class IntermediateTools:
         "pib_usd": ("NGDPD", "PIB (miles de millones de USD corrientes)"),
     }
 
-    # 5) FMI (World Economic Outlook, DataMapper): historico + PROYECCIONES OFICIALES
+    # El FMI bloquea hoy su API antigua (DataMapper) para clientes que no son navegadores.
+    # La API nueva (SDMX 3.0, api.imf.org) es abierta y no pide clave: se usa primero,
+    # y la antigua queda solo como respaldo.
+    @staticmethod
+    def _leer_csv_sdmx(texto):
+        puntos = {}
+        for fila in csv.DictReader(io.StringIO((texto or "").lstrip("\ufeff"))):
+            f = {str(k).strip().upper(): v for k, v in fila.items() if k}
+            periodo = f.get("TIME_PERIOD") or f.get("PERIOD") or f.get("TIME")
+            valor = f.get("OBS_VALUE") if f.get("OBS_VALUE") not in (None, "") else f.get("VALUE")
+            if periodo in (None, "") or valor in (None, ""):
+                continue
+            try:
+                puntos[int(str(periodo).strip()[:4])] = round(float(valor), 2)
+            except ValueError:
+                continue
+        return dict(sorted(puntos.items()))
+
+    def _fmi_sdmx(self, codigo, iso3):
+        url = f"https://api.imf.org/external/sdmx/3.0/data/dataflow/IMF.RES/WEO/~/{iso3}.{codigo}.A"
+        try:
+            response = requests.get(
+                url, timeout=30,
+                headers={"Accept": "text/csv", "User-Agent": self._default_headers["User-Agent"]})
+            response.raise_for_status()
+            puntos = self._leer_csv_sdmx(response.text)
+        except Exception as e:
+            return f"API nueva (SDMX 3.0): {type(e).__name__}: {e}"
+        return puntos or "API nueva (SDMX 3.0): la respuesta no trae datos"
+
+    def _fmi_datamapper(self, codigo, iso3):
+        url = f"https://www.imf.org/external/datamapper/api/v1/{codigo}/{iso3}"
+        try:
+            response = requests.get(url, headers=self._default_headers, timeout=30)
+            response.raise_for_status()
+            serie = (((response.json() or {}).get("values") or {}).get(codigo) or {}).get(iso3) or {}
+        except Exception as e:
+            return f"API antigua (DataMapper): {type(e).__name__}: {e}"
+        puntos = {}
+        for a, v in serie.items():
+            try:
+                if v is not None:
+                    puntos[int(a)] = round(float(v), 2)
+            except (TypeError, ValueError):
+                continue
+        return dict(sorted(puntos.items())) or "API antigua (DataMapper): sin datos"
+
+    # 5) FMI (World Economic Outlook): historico + PROYECCIONES OFICIALES
     def consultar_proyecciones_fmi_api(self, pais: str, indicador: str = "crecimiento_pib", anio_inicio=None, anio_fin=None):
         print(f"Herramienta consultar_proyecciones_fmi_api llamada con pais: {pais}, indicador: {indicador}, anio_inicio: {anio_inicio}, anio_fin: {anio_fin}")
 
@@ -594,24 +643,14 @@ class IntermediateTools:
         if ini > fin:
             return "Error: el año inicial debe ser menor o igual que el final."
 
-        url = f"https://www.imf.org/external/datamapper/api/v1/{codigo}/{iso3}"
-        try:
-            response = requests.get(url, headers=self._default_headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-        except Exception as e:
-            print(f"Error al consultar_proyecciones_fmi_api: {e}")
-            return f"ERROR: No se pudo consultar al FMI ({type(e).__name__}: {e})"
-
-        serie = (((data or {}).get("values") or {}).get(codigo) or {}).get(iso3) or {}
-        puntos = {}
-        for a, v in serie.items():
-            try:
-                anio = int(a)
-                if v is not None and ini <= anio <= fin:
-                    puntos[anio] = round(float(v), 2)
-            except (TypeError, ValueError):
-                continue
+        datos = self._fmi_sdmx(codigo, iso3)
+        if isinstance(datos, str):
+            respaldo = self._fmi_datamapper(codigo, iso3)
+            if isinstance(respaldo, str):
+                print(f"Error al consultar_proyecciones_fmi_api: {datos} | {respaldo}")
+                return f"ERROR: No se pudo consultar al FMI. Detalle: {datos} | {respaldo}"
+            datos = respaldo
+        puntos = {a: v for a, v in datos.items() if ini <= a <= fin}
         if not puntos:
             return f"ERROR: El FMI no tiene datos de {indicador} para {pais} ({iso3}) en {ini}-{fin}."
 
@@ -639,54 +678,85 @@ class IntermediateTools:
             }
         return salida
 
-    # 6) REST Countries: datos generales de un pais (poblacion, monedas, idiomas, capital...)
-    def consultar_datos_pais_api(self, pais: str):
-        print(f"Herramienta consultar_datos_pais_api llamada con pais: {pais}")
+    # 6) Open-Meteo: clima actual y pronostico de una ciudad (publica, sin clave)
+    # (Se reemplazo REST Countries: su version gratuita fue retirada y la nueva exige clave.)
+    _WMO = {
+        0: "Despejado", 1: "Mayormente despejado", 2: "Parcialmente nublado", 3: "Nublado",
+        45: "Niebla", 48: "Niebla con escarcha", 51: "Llovizna ligera", 53: "Llovizna moderada",
+        55: "Llovizna intensa", 56: "Llovizna helada", 57: "Llovizna helada intensa",
+        61: "Lluvia ligera", 63: "Lluvia moderada", 65: "Lluvia fuerte", 66: "Lluvia helada",
+        67: "Lluvia helada fuerte", 71: "Nevada ligera", 73: "Nevada moderada", 75: "Nevada fuerte",
+        77: "Granos de nieve", 80: "Chubascos ligeros", 81: "Chubascos moderados",
+        82: "Chubascos violentos", 85: "Chubascos de nieve", 86: "Chubascos de nieve fuertes",
+        95: "Tormenta", 96: "Tormenta con granizo", 99: "Tormenta con granizo fuerte",
+    }
 
-        if not pais or not str(pais).strip():
-            return "Error: Se requiere el nombre o código del país (ej. Guatemala o GT)."
+    def consultar_clima_api(self, ciudad: str, dias: int = 3):
+        print(f"Herramienta consultar_clima_api llamada con ciudad: {ciudad}, dias: {dias}")
 
-        entrada = str(pais).strip()
-        cod = self._normalizar_pais(entrada)
-        campos = "name,capital,region,subregion,population,area,currencies,languages"
-        base = "https://restcountries.com/v3.1"
-        if len(cod) in (2, 3) and cod.isalpha():
-            urls = [f"{base}/alpha/{cod}"]
-        else:
-            urls = [f"{base}/translation/{quote(entrada)}", f"{base}/name/{quote(entrada)}"]
+        if not ciudad or not str(ciudad).strip():
+            return "Error: Se requiere el nombre de la ciudad (ej. Guatemala, Madrid)."
+        try:
+            dias = max(1, min(int(dias or 3), 7))
+        except (TypeError, ValueError):
+            dias = 3
 
-        d, errores = None, []
-        for url in urls:
-            try:
-                response = requests.get(url, params={"fields": campos}, headers=self._default_headers, timeout=30)
-                response.raise_for_status()
-                data = response.json()
-                d = data[0] if isinstance(data, list) and data else data
-                if isinstance(d, dict) and d.get("name"):
-                    break
-                d = None
-            except Exception as e:
-                errores.append(f"{type(e).__name__}: {e}")
-        if not d:
-            print(f"Error en consultar_datos_pais_api: {errores}")
-            return f"ERROR: No se encontró información del país '{pais}'. Detalle: {errores}"
+        try:
+            g = requests.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={"name": str(ciudad).strip(), "count": 1, "language": "es", "format": "json"},
+                headers=self._default_headers, timeout=30)
+            g.raise_for_status()
+            resultados = (g.json() or {}).get("results") or []
+            if not resultados:
+                return f"ERROR: No se encontró la ciudad '{ciudad}'."
+            lugar = resultados[0]
 
-        poblacion, area = d.get("population"), d.get("area")
+            w = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": lugar["latitude"], "longitude": lugar["longitude"], "timezone": "auto",
+                    "forecast_days": dias,
+                    "current": "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m",
+                    "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+                },
+                headers=self._default_headers, timeout=30)
+            w.raise_for_status()
+            datos = w.json() or {}
+        except Exception as e:
+            print(f"Error al consultar_clima_api: {e}")
+            return f"ERROR: No se pudo consultar el clima de '{ciudad}' ({type(e).__name__}: {e})"
+
+        actual = datos.get("current") or {}
+        diario = datos.get("daily") or {}
+        pronostico = []
+        for i, fecha in enumerate(diario.get("time") or []):
+            def dato(clave):
+                serie = diario.get(clave) or []
+                return serie[i] if i < len(serie) else None
+            pronostico.append({
+                "fecha": fecha,
+                "condicion": self._WMO.get(dato("weather_code"), "Sin dato"),
+                "minima_c": dato("temperature_2m_min"),
+                "maxima_c": dato("temperature_2m_max"),
+                "prob_lluvia_pct": dato("precipitation_probability_max"),
+            })
         return {
-            "nombre": (d.get("name") or {}).get("common"),
-            "nombre_oficial": (d.get("name") or {}).get("official"),
-            "capital": d.get("capital"),
-            "region": d.get("region"),
-            "subregion": d.get("subregion"),
-            "poblacion": poblacion,
-            "area_km2": area,
-            "densidad_hab_km2": round(poblacion / area, 1) if poblacion and area else None,
-            "monedas": [
-                {"codigo": c, "nombre": v.get("name"), "simbolo": v.get("symbol")}
-                for c, v in (d.get("currencies") or {}).items()
-            ],
-            "idiomas": list((d.get("languages") or {}).values()),
-            "fuente": "REST Countries",
+            "ciudad": lugar.get("name"),
+            "region": lugar.get("admin1"),
+            "pais": lugar.get("country"),
+            "zona_horaria": datos.get("timezone"),
+            "actual": {
+                "hora_local": actual.get("time"),
+                "condicion": self._WMO.get(actual.get("weather_code"), "Sin dato"),
+                "temperatura_c": actual.get("temperature_2m"),
+                "sensacion_termica_c": actual.get("apparent_temperature"),
+                "humedad_pct": actual.get("relative_humidity_2m"),
+                "viento_kmh": actual.get("wind_speed_10m"),
+                "precipitacion_mm": actual.get("precipitation"),
+            },
+            "pronostico": pronostico,
+            "fuente": "Open-Meteo",
         }
 
     # 7) Tesoro de EE. UU. (FiscalData): deuda publica o tasas de interes promedio
