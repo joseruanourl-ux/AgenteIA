@@ -982,6 +982,92 @@ class IntermediateTools:
         print(f"Error al consultar_tipo_cambio_banguat_api: {errores}")
         return f"ERROR: No se pudo consultar el tipo de cambio del Banguat. Detalle: {errores}"
 
+    # 11) currency-api (fawazahmed0): metales preciosos y divisas (abierta, sin clave, sin limite)
+    _METALES = {
+        "oro": "xau", "gold": "xau", "xau": "xau",
+        "plata": "xag", "silver": "xag", "xag": "xag",
+        "platino": "xpt", "platinum": "xpt", "xpt": "xpt",
+        "paladio": "xpd", "palladium": "xpd", "xpd": "xpd",
+    }
+    _NOMBRES_METAL = {"xau": "Oro", "xag": "Plata", "xpt": "Platino", "xpd": "Paladio"}
+
+    def consultar_precio_metales_api(self, metal: str = "oro", moneda: str = "USD"):
+        print(f"Herramienta consultar_precio_metales_api llamada con metal: {metal}, moneda: {moneda}")
+
+        codigo = self._METALES.get((metal or "oro").strip().lower())
+        if not codigo:
+            return "Error: metal no reconocido. Usa oro, plata, platino o paladio."
+        divisa = (moneda or "USD").strip().lower()
+
+        espejos = [
+            "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",
+            "https://latest.currency-api.pages.dev/v1/currencies/usd.json",
+        ]
+        datos, errores = None, []
+        for url in espejos:  # el propio proyecto recomienda usar un respaldo si el primero falla
+            try:
+                response = requests.get(url, headers=self._default_headers, timeout=30)
+                response.raise_for_status()
+                datos = response.json()
+                if isinstance(datos, dict) and isinstance(datos.get("usd"), dict):
+                    break
+                errores.append(f"{url.split('/')[2]}: formato inesperado")
+                datos = None
+            except Exception as e:
+                errores.append(f"{url.split('/')[2]}: {type(e).__name__}: {e}")
+        if not datos:
+            print(f"Error en consultar_precio_metales_api: {errores}")
+            return f"ERROR: No se pudo consultar el precio del metal. Detalle: {errores}"
+
+        tasas = datos["usd"]
+        onzas_por_usd = tasas.get(codigo)
+        unidades_por_usd = 1.0 if divisa == "usd" else tasas.get(divisa)
+        if not onzas_por_usd or not unidades_por_usd:
+            return f"ERROR: No hay dato para el metal '{metal}' o la moneda '{moneda}'."
+
+        por_onza = unidades_por_usd / onzas_por_usd
+        return {
+            "metal": self._NOMBRES_METAL[codigo],
+            "moneda": divisa.upper(),
+            "precio_por_onza_troy": round(por_onza, 2),
+            "precio_por_gramo": round(por_onza / 31.1035, 2),
+            "fecha_datos": datos.get("date"),
+            "nota": "Dato diario de referencia (se actualiza una vez al día); no es una cotización en tiempo real.",
+            "fuente": "currency-api (fawazahmed0)",
+        }
+
+    # 12) CoinPaprika: panorama global del mercado cripto (plan gratuito, sin clave)
+    def consultar_mercado_cripto_global_api(self):
+        print("Herramienta consultar_mercado_cripto_global_api llamada")
+
+        try:
+            response = requests.get("https://api.coinpaprika.com/v1/global", headers=self._default_headers, timeout=30)
+            response.raise_for_status()
+            d = response.json() or {}
+            if "market_cap_usd" not in d:
+                return f"ERROR: Respuesta inesperada de CoinPaprika: {str(d)[:120]}"
+        except Exception as e:
+            print(f"Error al consultar_mercado_cripto_global_api: {e}")
+            return f"ERROR: No se pudo consultar CoinPaprika ({type(e).__name__}: {e})"
+
+        actualizado = None
+        try:
+            actualizado = datetime.fromtimestamp(int(d["last_updated"]), timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        except (KeyError, TypeError, ValueError):
+            pass
+        return {
+            "capitalizacion_total_usd": d.get("market_cap_usd"),
+            "capitalizacion_total_billones_usd": round(d["market_cap_usd"] / 1e12, 3),
+            "volumen_24h_usd": d.get("volume_24h_usd"),
+            "dominancia_bitcoin_pct": d.get("bitcoin_dominance_percentage"),
+            "criptomonedas_registradas": d.get("cryptocurrencies_number"),
+            "variacion_capitalizacion_24h_pct": d.get("market_cap_change_24h"),
+            "variacion_volumen_24h_pct": d.get("volume_24h_change_24h"),
+            "actualizado": actualizado,
+            "nota_unidad": "1 billón = un millón de millones (10^12), equivalente al 'trillion' en inglés",
+            "fuente": "CoinPaprika",
+        }
+
     # Herramienta para consultar informacion basica de un pais (Banco Mundial,
     # mismo proveedor que las otras herramientas de indicadores; reemplaza a
     # REST Countries, que dejo de responder de forma confiable).
