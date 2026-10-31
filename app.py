@@ -358,11 +358,13 @@ MISIONES = {
         "¿Cuál es el tipo de cambio del euro en quetzales?",
         "Tipo de cambio de EUR a USD el 2024-01-15",
         "¿Cuál es el tipo de cambio oficial del Banguat hoy?",
+        "¿Cuánto vale la onza de oro hoy?",
     ],
     "Criptoactivos": [
         "¿Cuál es el precio de bitcoin?",
         "Dame el top 5 de criptomonedas",
         "¿Cómo está el índice de miedo y codicia del mercado cripto?",
+        "¿Cuál es la capitalización total del mercado cripto?",
     ],
     "Referencia": [
         "¿Qué es la inflación?",
@@ -398,6 +400,8 @@ PRUEBAS = [
     ("consultar_indice_miedo_codicia_api", "Alternative.me", lambda t: t.consultar_indice_miedo_codicia_api(1)),
     ("consultar_concepto_wikipedia_api", "Wikipedia", lambda t: t.consultar_concepto_wikipedia_api("inflación")),
     ("consultar_tipo_cambio_banguat_api", "Banguat", lambda t: t.consultar_tipo_cambio_banguat_api()),
+    ("consultar_precio_metales_api", "currency-api", lambda t: t.consultar_precio_metales_api("oro", "USD")),
+    ("consultar_mercado_cripto_global_api", "CoinPaprika", lambda t: t.consultar_mercado_cripto_global_api()),
 ]
 
 
@@ -536,8 +540,8 @@ def render_ticker():
     if met.get("btc"):
         elementos.append(f'<span class="tk"><b>BTC/USD</b><i>{met["btc"]:,.0f}</i></span>')
     elementos += [
-        '<span class="tk"><b>DIVISAS</b><em>open.er-api · Frankfurter · Banguat</em></span>',
-        '<span class="tk"><b>CRIPTO</b><em>CoinGecko · Alternative.me</em></span>',
+        '<span class="tk"><b>DIVISAS</b><em>open.er-api · Frankfurter · Banguat · currency-api</em></span>',
+        '<span class="tk"><b>CRIPTO</b><em>CoinGecko · CoinPaprika · Alternative.me</em></span>',
         '<span class="tk"><b>MACRO</b><em>Banco Mundial · FMI · Tesoro EE. UU.</em></span>',
         '<span class="tk"><b>REFERENCIA</b><em>Open-Meteo · Wikipedia</em></span>',
     ]
@@ -703,14 +707,14 @@ if not st.session_state.chat:
         <div class="brief">
             <div class="brief-tag">SISTEMA EN LÍNEA</div>
             <div class="brief-title">Bienvenido a {APP_NAME}</div>
-            <p>Asistente de inteligencia financiera con acceso en tiempo real a diez fuentes
+            <p>Asistente de inteligencia financiera con acceso en tiempo real a doce fuentes
             de datos públicas. Consulta cotizaciones, criptoactivos e indicadores macroeconómicos con
             respuestas basadas en datos verificables.</p>
             <div class="cards">
                 <div class="card"><div class="ci">◈</div><div class="ct">Divisas</div>
-                    <div class="cd">Tipo de cambio de mercado y oficial del Banguat, histórico y conversión de montos.</div></div>
+                    <div class="cd">Tipo de cambio de mercado y oficial del Banguat, conversión de montos y metales preciosos.</div></div>
                 <div class="card"><div class="ci">◈</div><div class="ct">Criptoactivos</div>
-                    <div class="cd">Precios en vivo, ranking por capitalización e índice de miedo y codicia.</div></div>
+                    <div class="cd">Precios en vivo, ranking, capitalización global e índice de miedo y codicia.</div></div>
                 <div class="card"><div class="ci">◈</div><div class="ct">Macroeconomía</div>
                     <div class="cd">Gráficas históricas, proyecciones del FMI, deuda de EE. UU. y datos por país.</div></div>
             </div>
